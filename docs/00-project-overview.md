@@ -15,3 +15,5 @@ Sign in → capture/upload photos → review candidate species → confirm or ma
 - Respect privacy, licensing, API costs, and user consent.
 - Initial UI in Korean; do not claim universal species coverage or diagnosis accuracy.
 - Scope: personal use. Commercial use is not a goal; external APIs are used under their personal, non-commercial terms.
+- Deployment preference: browser-based app on GitHub Pages, not an app-store release. Mobile home-screen installation (PWA) is optional and does not imply native-app distribution.
+- Species and care reference data starts empty and grows on demand from confirmed plant registrations; AI-generated guidance must carry source/verification status and remain reviewable.
