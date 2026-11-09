@@ -5,6 +5,7 @@ Date: 2026-11-05
 
 ## Context
 The project supports indoor/outdoor plant management with photo capture, AI identification, health analysis, care logs and reminders.
+Purpose: personal use by the owner. No commercial distribution is planned. Provider terms are still checked for personal, non-commercial use.
 
 ## Proposal
 Use a mobile-first PWA built on Next.js and TypeScript, with Supabase for authentication, database and storage.

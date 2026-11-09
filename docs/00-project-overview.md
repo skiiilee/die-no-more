@@ -14,3 +14,4 @@ Sign in → capture/upload photos → review candidate species → confirm or ma
 - Separate individual plant records from canonical species data.
 - Respect privacy, licensing, API costs, and user consent.
 - Initial UI in Korean; do not claim universal species coverage or diagnosis accuracy.
+- Scope: personal use. Commercial use is not a goal; external APIs are used under their personal, non-commercial terms.

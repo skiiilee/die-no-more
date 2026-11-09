@@ -21,4 +21,4 @@ Support pending, due, completed, snoozed, skipped and cancelled. Completion writ
 Handle non-plant photos, ambiguous results, API timeouts, quotas, offline interruptions and absent species reference data. All user data requires ownership checks/RLS; photos private; API secrets server-only.
 
 ## Definition of done
-Functional tests cover success, failure, ambiguity and unauthorized access. Mobile registration and care flows pass E2E. Provider integration and licenses verified before production.
+Functional tests cover success, failure, ambiguity and unauthorized access. Mobile registration and care flows pass E2E. Provider terms for personal, non-commercial use, caching limits and photo transmission/retention conditions verified before any provider is enabled.
