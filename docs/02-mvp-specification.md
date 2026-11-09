@@ -1,12 +1,15 @@
 # MVP functional specification (draft)
 
-Status: Proposed, not approved. See `01-requirements.md` for feature IDs.
+Status: Proposed, not approved. See `01-requirements.md` for feature IDs. **UI-first requirement:** no implementation starts before user approval of the screen designs/prototype in `docs/09-ui-design-plan.md`.
 
 ## Identification
 Input: 1–5 plant photos; camera or gallery. Validate file content/type and size. Output: ranked candidate species with scientific names and provider score labels. User must confirm a candidate, search manually, or save an unknown plant. Store original candidates and final user choice separately.
 
 ## Health assessment
 Input: photo(s), plant species if confirmed, optional user observations. Output: observed symptoms, possible causes, follow-up questions, caution and recommended checks. Do not claim definitive disease identification from images. Persist model/provider/version and analysis date. Failed analysis must not block plant registration.
+
+## On-demand care reference
+The reference DB starts with no species. When the user confirms a new species, reuse cached reference data if present. Otherwise, optionally request Gemini-generated information (with provenance, version and **unverified** status), let the user correct it, and keep registration functional if no provider data is available. Individual pots of the same species retain separate personal care history.
 
 ## Personal plant management
 Each physical plant has an independent ID, nickname, location, indoor/outdoor environment, status and chronological photo history. Allow duplicate species across different plants, editing and archiving.
