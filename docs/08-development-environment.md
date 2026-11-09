@@ -43,8 +43,9 @@ Do not create an app scaffold, GitHub Actions deployment workflow, Supabase tabl
 
 - Vite production base: `/die-no-more/` for the project site. The final URL remains **unconfirmed until deployed**.
 - Direct URLs such as `/die-no-more/plants/123` are not server-routed on default Pages hosting. Hash paths `/die-no-more/#/plants/123` avoid custom 404 handling; test browser refresh and back/forward behavior.
-- Check Supabase Auth redirect URLs and email-link/callback flows against the deployed URL; prevent an accidental redirect to the wrong path.
+- Use **Supabase Auth PKCE**, not an implicit `#access_token` callback, when using hash routing. Configure redirect allowlists for `/die-no-more/`; exchange the returned `?code=` for a session in the initiating browser and then remove the query. Browser-test login/email-link callbacks, refresh and back navigation before enabling sign-in.
 - GitHub Pages is publicly reachable. It does not provide a private authenticated site by itself.
+- Free Supabase projects may be paused after low database activity (currently roughly a 7-day window). The later operations checklist must include project status checks, manual resume through the dashboard, downtime messaging and independent user-data export/backup guidance. Never assume GitHub Pages availability implies Supabase availability.
 - GitHub Actions deployment must be created only after UI design approval. Manual release and rollback plan should be documented then.
 - PWA home-screen install, offline read cache, and push are separate future enhancements; a website alone does not promise native notifications.
 
@@ -52,9 +53,9 @@ Do not create an app scaffold, GitHub Actions deployment workflow, Supabase tabl
 
 - UX: mobile widths (~360–390 px), desktop layout, keyboard and screen-reader basics, error/loading/empty/offline/quota-exceeded states.
 - Data: unknown species registration, duplicate species reuse, user correction of AI-generated unverified care guidance.
-- Provider: verify current official personal/noncommercial terms, free allowances, treatment of uploaded photos, retention/caching rights and cost safeguards. Do not hard-code free-tier numbers until verified.
+- Provider: verify current official personal/noncommercial terms, free allowances, treatment of uploaded photos, retention/caching rights and cost safeguards. **Gemini unpaid-service inputs/outputs may be used for product improvement or reviewed by humans under its terms: private household photos must not be sent by default**. Document the terms with verification date, an informed opt-in decision and a privacy-safe fallback before enabling photo analysis. Do not hard-code free-tier numbers until verified.
 - Security: user-only authorization in Edge Functions, tested RLS and private Storage access, no sensitive values in browser bundles or repository.
-- Reliability: Edge runtime/timeouts, quota fallback, retries/idempotency; plan a real worker/queue only if tasks cannot complete within bounded function limits.
+- Reliability: verify Edge runtime/timeouts for the selected plan (Supabase currently documents Free **150s wall-clock** and **150s request idle timeout**, plus **2s active CPU per request**); the wall-clock limit of a worker does not guarantee that a single AI request can run for that entire duration. Set lower application timeouts, quota fallback, retries/idempotency; if the work cannot fit, use a real worker/queue rather than a job table alone.
 
 ## Deferred until after UI sign-off
 
