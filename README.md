@@ -4,7 +4,7 @@
 
 ## 현재 단계
 
-기획 검증 및 기술 설계 초안 단계입니다. 구현 코드는 아직 없습니다.
+PR #1의 기획 문서는 `main`에 병합되었습니다. 현재는 **GitHub Pages 기반 개인용 웹앱**으로 개발 환경을 전환하는 별도 제안(PR)을 검토 중이며, 구현 코드는 아직 없습니다.
 
 ## 협업 원칙
 
@@ -15,7 +15,16 @@
 
 ## 문서
 
-초기 기획 문서는 별도 브랜치의 Draft Pull Request에서 검토 후 병합합니다. 제안은 확정된 결정과 구분합니다.
+초기 기획 문서는 PR #1로 병합되었습니다. 최신 개발 환경 전환안은 `docs/decisions/ADR-0002-github-pages-static-app.md`, `docs/08-development-environment.md` 및 해당 Draft PR을 참고하세요. **PR 문서 제안은 사용자 승인 전까지 확정된 결정이 아닙니다.**
+
+## 제안 개발 환경
+
+- 프런트엔드: React + TypeScript + Vite (정적 빌드)
+- 호스팅: GitHub Pages (`https://skiiilee.github.io/die-no-more/`, 배포 전 예상 주소)
+- 데이터 및 로그인: Supabase Auth/PostgreSQL(RLS)/private Storage
+- API 키 보호와 외부 AI 호출: Supabase Edge Functions
+- 외부 식별/분석 후보: Pl@ntNet, Gemini (현재 약관·무료 한도 검증 전)
+- 식물별 관리 데이터: 처음에는 비워두고 식물 등록 때 온디맨드 생성·검토·캐싱
 
 ## 보안
 
