@@ -21,12 +21,6 @@
 | F17 | Shared care | P2 |
 | F18 | IoT sensor integration | P2 |
 
-## Project stage and hosting constraints
-- This is a personal-use website planned for GitHub Pages; no app-store distribution is required.
-- The project is **UI design first**. Screen mockups/flows must receive explicit user approval before code implementation.
-- The canonical species-care knowledge base starts empty and grows as plant species are confirmed during real use; provider failures do not block manual entry.
-- Health assessment F05 remains a proposed P0 requirement; model choice and release gate are unresolved and must not be silently approved by this PR.
-
 ## Nonfunctional requirements
 - Access control: authenticated ownership, RLS, private media.
 - Reliability: API timeouts, retries, idempotency, graceful fallback.
