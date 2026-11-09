@@ -1,6 +1,8 @@
-# Screens and user flows (draft)
+# Screens and user flows (UI-first proposal)
 
-Mobile-first PWA, responsive desktop layout. Korean UI.
+**Design phase only.** The owner wants the UI screens reviewed **before** any app code or deployment setup. The screen inventory below is a starting point, not final visual design. See `docs/09-ui-design-plan.md` for required sitemap, wireframes, visual mockups, prototype, states and approval gate.
+
+Mobile-first responsive web layout, Korean UI. PWA install can be considered later; the initial deployment target is GitHub Pages.
 
 | ID | Screen | Core contents |
 |---|---|---|
@@ -20,4 +22,9 @@ Mobile-first PWA, responsive desktop layout. Korean UI.
 New user: sign in → capture → identify → confirm → optional health analysis → register → recommendations.
 Returning user: home → plant detail → log or reassess → updated recommendations → tasks.
 
-Do not require a health diagnosis to register a plant. Display data source and uncertainty. Provide loading, empty, error and offline states.
+Do not require a health diagnosis to register a plant. Display data source and uncertainty. Provide loading, empty, error and offline states. Add provider quota-exhausted, AI-generated care draft (unverified), user correction and repeated species cache-reuse states. Site should explain private login even though its GitHub Pages frontend is publicly reachable.
+
+## Approval criteria before coding
+- Review mobile and desktop screen mockups and core clickable flows (new species, existing species, care logs, reminders, errors).
+- Resolve interaction and visual feedback; explicitly record user approval of UI.
+- Only after approval may Claude write React components, styles, database migrations or Edge Function code.
