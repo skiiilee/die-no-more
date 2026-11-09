@@ -18,3 +18,6 @@ Push notification support differs across platforms; offline storage and backgrou
 
 ## Decision
 Pending user approval and Claude implementation feasibility review.
+
+## Subsequent proposal (2026-11-09)
+The owner later specified GitHub Pages hosting for a personal-use web app. See [ADR-0002](ADR-0002-github-pages-static-app.md) for a proposed React + Vite static front end and Supabase Edge Functions architecture. This note does not retroactively mark ADR-0001 as Accepted; the user must approve the replacement architecture.
