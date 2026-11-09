@@ -1,6 +1,7 @@
 # Claude implementation guide
 
 Read `AGENTS.md`, `docs/00-project-overview.md`, and the relevant specification before coding.
+Before starting, read the most recent file in `docs/progress/` to see where the last session stopped. Add a new `YYYY-MM-DD_claude.md` entry at the end of work; never edit past dates.
 
 ## Role
 Claude is the primary implementation agent. Do not silently redefine requirements. Flag infeasible assumptions and propose alternatives in PR comments or `docs/reviews/claude/`.
