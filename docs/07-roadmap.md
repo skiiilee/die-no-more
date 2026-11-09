@@ -1,16 +1,14 @@
 # Roadmap and release gates (draft)
 
-Indicative plan for a personal-use GitHub Pages website, **not a delivery commitment**. The owner requested **UI design and approval before implementation**; the old week numbers below are legacy estimates and are superseded by the stage gates here.
+Indicative schedule for a small team using third-party AI APIs, not a delivery commitment.
 
-| Stage | Start condition | Deliverables |
+| Phase | Weeks | Deliverables |
 |---|---|---|
-| **UI planning and design** | Now | Sitemap, user flows, low-fi wireframes, Korean screen copy, mobile/desktop mockups and failure/empty states |
-| **UI owner approval** | After reviewing mockups | Feedback incorporated, core interactions reviewed, explicit sign-off to start implementation |
-| Architecture/provider validation | After UI approval | Approve ADR-0002, GitHub Pages constraints, auth redirects, API terms/privacy/cost and DB data flow |
-| Foundation implementation | After approved design + architecture | Vite project, Supabase Auth/RLS/storage, protected Edge Functions, tests and CI in separate feature PR |
-| Identification and plant registration | Foundation ready | Photo/manual entry, Pl@ntNet candidate selection, personal plants, empty initial species DB, optional Gemini draft |
-| Ongoing care and optional health | After core flows work | Observations, tasks/logs, deterministic care rules, optional Gemini photo symptoms behind verification/feature flag |
-| Test/release | After reviewed feature work | Mobile E2E, security/quotas, manual fallback, GitHub Pages deploy and owner acceptance |
+| Foundation | 1–2 | Auth, DB, storage, CI |
+| Identification | 3–4 | Capture, identification, confirmation, plant CRUD |
+| Health/history | 5–6 | Health analysis, observations, photo timeline |
+| Care | 7–9 | Rules, grounded recommendations, tasks/logs |
+| Beta | 10–12 | E2E, security, provider quality, usability |
 
 ## Suggested acceptance targets for personal use (proposal, not industry benchmarks)
 The project is for personal use. Targets below are the owner's own checks, not market metrics.
@@ -22,14 +20,11 @@ The project is for personal use. Targets below are the owner's own checks, not m
 - Care log persistence success ≥99%.
 - Owner records care at least once a week for 4 consecutive weeks (replaces the 7-day return rate).
 
-## Development freeze until UI review
-**Do not implement application code, migrations, provider integrations, GitHub Actions deployment or activate GitHub Pages before explicit owner approval of the UI.** The current PR changes documentation only.
-
 ## Release gate
 Manual fallback works; user ownership enforced; no secrets exposed; API failure is recoverable; recommendations avoid definitive unsupported diagnosis; mobile flow and accessibility tested.
 
 ## Immediate priorities
-1. Prepare and review the sitemap and key mobile screen wireframes.
-2. Produce the visual UI mockups/prototype and receive owner approval.
-3. Review ADR-0002 and validate the providers' personal noncommercial terms, real-photo accuracy, privacy and free-tier constraints.
-4. Only then approve schema/API contracts and begin implementation in separate reviewed PRs.
+1. Validate providers with real indoor/outdoor plant photos and their personal non-commercial use terms.
+2. Approve schema and RLS design.
+3. Approve API contracts and error states.
+4. Implement in reviewed feature PRs.
