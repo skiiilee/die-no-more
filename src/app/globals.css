@@ -1,0 +1,87 @@
+/* Design tokens. Mobile-first; PC layout from 960px. */
+:root {
+  --color-bg: #f6f7f4;
+  --color-surface: #ffffff;
+  --color-surface-muted: #eef1ec;
+  --color-border: #d9ded6;
+  --color-text: #1d2a22;
+  --color-text-muted: #5b6a60;
+  --color-primary: #2f6b45;
+  --color-primary-strong: #245536;
+  --color-on-primary: #ffffff;
+  --color-danger: #b3261e;
+  --color-focus: #1a73e8;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --font-body: system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic",
+    "Noto Sans KR", sans-serif;
+  --tabbar-height: 64px;
+  --sidebar-width: 200px;
+  --header-height: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #121714;
+    --color-surface: #1a211c;
+    --color-surface-muted: #222b25;
+    --color-border: #344038;
+    --color-text: #e6ece7;
+    --color-text-muted: #a3b1a7;
+    --color-primary: #7cc496;
+    --color-primary-strong: #9bd6b0;
+    --color-on-primary: #0f1a13;
+    --color-danger: #f2b8b5;
+    --color-focus: #8ab4f8;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

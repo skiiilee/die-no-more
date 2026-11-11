@@ -1,0 +1,18 @@
+.title {
+  margin: 0 0 var(--space-3);
+  font-size: 22px;
+}
+
+.note {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+.loading {
+  margin: 0;
+  color: var(--color-text-muted);
+}
