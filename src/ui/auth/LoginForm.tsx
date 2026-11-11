@@ -8,13 +8,14 @@ import styles from "./LoginForm.module.css";
 
 const INITIAL: SignInFormState = { error: null };
 
-export function LoginForm({ next }: { next: string | undefined }) {
+/** `children` carries extra hidden fields, such as the streamed return path. */
+export function LoginForm({ children }: { children?: React.ReactNode }) {
   const [state, formAction, pending] = useActionState(signInAction, INITIAL);
   const errorId = "login-error";
 
   return (
     <form action={formAction} className={styles.form} noValidate>
-      {next ? <input type="hidden" name="next" value={next} /> : null}
+      {children}
       <label htmlFor="password" className="visually-hidden">
         비밀번호
       </label>

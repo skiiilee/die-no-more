@@ -7,7 +7,11 @@ export const metadata: Metadata = { title: "로그인" };
 
 type SearchParams = Promise<{ next?: string | string[] }>;
 
-/** S01 개인 사용자 접근 (wireframe pages 3–4). */
+/**
+ * S01 개인 사용자 접근 (wireframe pages 3–4).
+ * The form is part of the static shell so there is only ever one password
+ * field. Only the hidden return path reads request data, behind a boundary.
+ */
 export default function LoginPage({ searchParams }: { searchParams: SearchParams }) {
   return (
     <main className={styles.main}>
@@ -16,16 +20,18 @@ export default function LoginPage({ searchParams }: { searchParams: SearchParams
         <h1 id="login-title" className={styles.title}>
           로그인
         </h1>
-        {/* searchParams is request data: read it behind a boundary. */}
-        <Suspense fallback={<LoginForm next={undefined} />}>
-          <LoginFormWithNext searchParams={searchParams} />
-        </Suspense>
+        <LoginForm>
+          <Suspense fallback={null}>
+            <NextPathField searchParams={searchParams} />
+          </Suspense>
+        </LoginForm>
       </section>
     </main>
   );
 }
 
-async function LoginFormWithNext({ searchParams }: { searchParams: SearchParams }) {
+async function NextPathField({ searchParams }: { searchParams: SearchParams }) {
   const { next } = await searchParams;
-  return <LoginForm next={typeof next === "string" ? next : undefined} />;
+  // Validated again on the server in signInAction (safeNextPath).
+  return typeof next === "string" ? <input type="hidden" name="next" value={next} /> : null;
 }

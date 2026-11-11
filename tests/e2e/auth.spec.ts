@@ -22,6 +22,9 @@ test("S01 shows only a password field and a confirm button", async ({ page }) =>
 test("without auth config, sign-in shows the setup message and stays on S01", async ({ page }) => {
   test.skip(!!process.env.SUPABASE_URL, "auth is configured in this environment");
   await page.goto("/login?next=%2Fplants");
+  // One form only: the streamed return path must not duplicate the password field.
+  await expect(page.getByPlaceholder("비밀번호")).toHaveCount(1);
+  await expect(page.locator('input[type=hidden][name="next"]')).toHaveValue("/plants");
   await page.getByPlaceholder("비밀번호").fill("any-password");
   await page.getByRole("button", { name: "확인" }).click();
   // Next.js's route announcer also has role="alert", so match ours by text.
