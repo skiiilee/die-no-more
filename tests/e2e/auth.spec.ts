@@ -8,8 +8,11 @@ test("signed-out visitors are sent to S01 with the return path", async ({ page }
 
 test("S01 shows only a password field and a confirm button", async ({ page }) => {
   await page.goto("/login");
+  // Wireframe pages 3–4: one visible input, a password field (no email field).
+  const inputs = page.locator("input:not([type=hidden])");
+  await expect(inputs).toHaveCount(1);
+  await expect(inputs).toHaveAttribute("type", "password");
   await expect(page.getByPlaceholder("비밀번호")).toBeVisible();
-  await expect(page.getByRole("textbox")).toHaveCount(0); // password inputs are not textboxes
   await expect(page.getByRole("button", { name: "확인" })).toBeVisible();
 });
 
