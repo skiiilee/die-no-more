@@ -34,7 +34,7 @@ PostgreSQL + Supabase; UUID primary keys and timestamptz event times. Date math 
 Migration: `supabase/migrations/20261111171114_initial_schema.sql`. RLS tests: `supabase/tests/database/rls.test.sql` (run in CI).
 
 - Per-user tables: owner-only RLS for every operation, plus a composite FK `(plant_id, user_id) → user_plants(id, user_id)` so a row cannot point at another user's pot.
-- `anon` has no table access. Shared species tables are readable and cacheable (insert/update, no delete) by signed-in users, because the server writes search results with the owner's session.
+- `anon` has no table access. Shared species tables are readable and cacheable (insert/update, no delete) by signed-in users, because the server writes search results with the owner's session. Kept as is for a single user; see `docs/09-deferred-items.md` DF-01.
 - Storage: private bucket `plant-photos`, JPEG only, 3 MB limit, objects under `<user_id>/…` readable and writable only by that user.
 
 ### Stored codes for S05 choices
