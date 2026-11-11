@@ -1,6 +1,6 @@
 # ADR-0001: Mobile-first PWA
 
-Status: Proposed
+Status: Accepted (user decision, 2026-11-11; see ADR-0002)
 Date: 2026-11-05
 
 ## Context
@@ -17,4 +17,4 @@ One codebase for mobile and desktop, web distribution, rapid iteration, and brow
 Push notification support differs across platforms; offline storage and background work have constraints. Native app may be considered later if native-only requirements become critical.
 
 ## Decision
-Pending user approval and Claude implementation feasibility review.
+Accepted by user decision on 2026-11-11. Hosting and layer rules are in ADR-0002.
