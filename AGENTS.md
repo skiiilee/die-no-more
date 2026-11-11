@@ -1,38 +1,38 @@
-# AI collaboration policy
+# AI 협업 정책
 
-## Source of truth
-- `main`: approved specifications and code.
-- Draft PRs: proposals under review; never treat as approved.
-- Issues: work items; ADRs: architecture decisions.
-- Preserve existing files and user edits. Read before modifying.
-- Never commit credentials, personal data, private plant photos or secrets.
+## 기준 원본
+- `main`: 승인된 명세와 코드.
+- Draft PR: 검토 중인 제안. 승인된 것으로 취급하지 않는다.
+- Issue: 작업 항목. ADR: 아키텍처 결정.
+- 기존 파일과 사용자 수정 내용을 보존한다. 수정 전에 반드시 읽는다.
+- 인증 정보, 개인 정보, 개인 식물 사진, 비밀값을 커밋하지 않는다.
 
-## Responsibilities
-- GPT: requirements validation, architecture and security review, acceptance criteria, PR review.
-- Claude: code implementation, tests, refactoring, implementation documentation.
-- User: final decisions and approval to merge.
+## 역할
+- GPT: 요구사항 검증, 아키텍처·보안 검토, 인수 기준, PR 리뷰.
+- Claude: 코드 구현, 테스트, 리팩터링, 구현 문서.
+- 사용자: 최종 결정과 병합 승인.
 
-## Workflow
-1. GPT writes a proposal with assumptions, alternatives, risks, acceptance criteria.
-2. Claude comments on feasibility and implementation tradeoffs.
-3. Differences are recorded in `docs/reviews/` or PR discussion.
-4. User approves important changes; record decisions in ADRs.
-5. Claude implements in a feature branch with tests.
-6. GPT reviews changed files and test evidence.
-7. User approves merge. Never auto-merge.
+## 워크플로
+1. GPT가 가정, 대안, 위험, 인수 기준을 담은 제안을 작성한다.
+2. Claude가 실현 가능성과 구현 상의 트레이드오프를 코멘트한다.
+3. 차이는 `docs/reviews/` 또는 PR 토론에 기록한다.
+4. 사용자가 중요한 변경을 승인하고, 결정은 ADR에 기록한다.
+5. Claude가 기능 브랜치에서 테스트와 함께 구현한다.
+6. GPT가 변경 파일과 테스트 근거를 리뷰한다.
+7. 사용자가 병합을 승인한다. 자동 병합은 하지 않는다.
 
-## Branch naming
-Every branch starts with the author's prefix, so the author of a PR is visible from the branch name.
-- Format: `<author>/<type>-<short-topic>`
-- `<author>`: `gpt`, `claude`, or `skii` (the user)
-- `<type>`: `docs`, `feat`, `fix`, `review`, `chore`
-- `<short-topic>`: lowercase words separated by hyphens
-- Examples: `gpt/docs-mvp-plan`, `claude/review-feasibility`, `claude/feat-plant-registration`, `skii/docs-adr-approval`
-- Do not rename a branch that already has an open PR. Close the PR first, or leave the name and note the author in the PR body.
+## 브랜치 이름
+모든 브랜치는 작성자 접두사로 시작하여, 브랜치 이름만 보고도 PR 작성자를 알 수 있어야 한다.
+- 형식: `<작성자>/<유형>-<짧은-주제>`
+- `<작성자>`: `gpt`, `claude`, `skii`(사용자)
+- `<유형>`: `docs`, `feat`, `fix`, `review`, `chore`
+- `<짧은-주제>`: 소문자 단어를 하이픈으로 연결
+- 예: `gpt/docs-mvp-plan`, `claude/review-feasibility`, `claude/feat-plant-registration`, `skii/docs-adr-approval`
+- 이미 열린 PR이 있는 브랜치는 이름을 바꾸지 않는다. PR을 먼저 닫거나, 이름을 유지하고 PR 본문에 작성자를 적는다.
 
-## Review format
-- Topic and linked issue/PR
-- GPT position and evidence
-- Claude position and evidence
-- Agreements, disagreements, unresolved questions
-- Decision owner, date, status
+## 리뷰 형식
+- 주제와 연결된 이슈/PR
+- GPT의 입장과 근거
+- Claude의 입장과 근거
+- 합의점, 이견, 미해결 질문
+- 결정 담당자, 날짜, 상태
