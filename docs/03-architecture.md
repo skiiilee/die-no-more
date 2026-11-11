@@ -29,5 +29,5 @@ Dependencies point one way only: Types → Config → Repo → Service → Runti
 A documentation maintenance agent runs weekly, Monday 08:40 KST (ADR-0003 D19). It finds stale references and superseded decisions and opens fix-up PRs. It never merges. The user approves every merge (AGENTS.md).
 
 ## Resolved decisions ([ADR-0003](decisions/ADR-0003-implementation-decisions.md))
-- Async: synchronous Route Handler calls, 15s provider timeout, one retry on timeout/5xx, 30s max duration, no queue (D7).
+- Async: synchronous Route Handler calls, no queue. 30s function limit, 25s request deadline, per-call timeout min(10s, remaining − 5s), one retry only if ≥12s remain (D7).
 - Offline: app shell cache and offline banner only; no offline write sync in MVP (D9).

@@ -7,7 +7,7 @@ PostgreSQL + Supabase; UUID primary keys and timestamptz event times. Date math 
 ## Plant DB (shared species data, keyed by scientific name)
 - `plant_species`: `scientific_name_key` (unique, normalized per ADR-0003 D10), scientific name as returned, English common name, `korean_name` (nullable), `korean_name_translated_at`, family, provider IDs (Perenual, Trefle, Pl@ntNet), `source`, `fetched_at`.
 - `species_aliases`: alternate names/languages. Never used for automatic merging.
-- `species_care`: one row per species and field (light, watering, watering benchmark days min/max, fertilizer interval days, soil, temperature, toxicity, pests…), `source` (`perenual` | `user`), `user_id` (set only for `user` rows, RLS-protected), `fetched_at` or `entered_at`/`updated_at`. API and user values coexist; user values never overwrite API values and never drive reminders (D13).
+- `species_care`: one row per species and field (light, watering, watering benchmark days min/max, fertilizer interval days, soil, temperature, toxicity, pests…), `source` (`perenual` | `user`), `user_id` (set only for `user` rows, RLS-protected), `fetched_at` or `entered_at`/`updated_at`; for `user` rows `review_status` (`pending` | `approved`) and `approved_at` (D13). API and user values coexist; user values never overwrite API values and never drive reminders (D13).
 
 ## Pot DB (per user, RLS on `user_id`)
 - `user_plants`: `user_id`, `species_id` nullable, `user_entered_name` nullable (manual/unknown, D12), `nickname` nullable, indoor/outdoor, location, `status` (`active` | `archived`), `light_level`, `pot_material`, `initial_last_watered_range`, `initial_last_repotted_range`, `initial_state_recorded_at`, `water_reminder_enabled`, `fertilizer_reminder_enabled`.
@@ -18,6 +18,7 @@ PostgreSQL + Supabase; UUID primary keys and timestamptz event times. Date math 
 - `care_logs`: `plant_id`, care type, `performed_at`, amount/unit, notes, `idempotency_key` unique.
 - `care_tasks`: `plant_id`, type (`soil_check` | `fertilize`), `due_at`, status (`pending` | `completed` | `snoozed` | `skipped` | `cancelled`; overdue is derived), `completed_at`, `snoozed_until`.
 - `api_usage_logs`: provider, operation, status, `called_at` (daily quota per KST day, D8).
+- `storage_deletions`: `user_id`, `deletion_request_id`, storage path, status (`pending` | `done` | `failed`), attempts, last error. Filled in the same transaction that deletes rows (D18).
 
 ## Constraints
 - Species may be unknown; `user_plants.species_id` nullable.
@@ -25,5 +26,5 @@ PostgreSQL + Supabase; UUID primary keys and timestamptz event times. Date math 
 - AI candidates (`identification_sessions.candidates`) stay separate from the user-confirmed `species_id`.
 - All per-user rows protected by RLS; Storage private and scoped by user.
 - Completing a task and writing a care log is one atomic, idempotent transaction. Snooze, skip and soil-check completion never write a watering log.
-- Archive keeps all rows; permanent delete removes the pot's rows and Storage objects (D18).
+- Archive (S06-A) keeps all rows. Permanent delete (S12-D only) deletes rows and queues Storage paths in one transaction, then deletes objects with retry (D18).
 - `care_recommendations` and `notification_preferences` from the earlier draft are dropped: recommendations are computed from rules at read time (D3), and reminder flags live on `user_plants` (D16, D17).
