@@ -48,6 +48,24 @@ jobs:
         env:
           HOME: /root
 
+  db:
+    runs-on: ubuntu-latest
+    # Applies supabase/migrations to a fresh local Supabase stack and runs the
+    # pgTAP RLS tests in supabase/tests. Needs Docker, which runners have.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 3.1.0
+      - name: Start Postgres, Auth and Storage (migrations applied on start)
+        run: >
+          supabase start
+          -x studio,imgproxy,realtime,edge-runtime,logflare,vector,supavisor,mailpit,postgres-meta,postgrest
+      - name: RLS and integrity tests (pgTAP)
+        run: supabase test db
+      - name: Lint migrations
+        run: supabase db lint --level warning
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:
