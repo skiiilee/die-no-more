@@ -8,7 +8,7 @@ Server: Next.js route handlers and services. Supabase Auth, PostgreSQL with RLS,
 - `identification`: provider adapter, normalized candidates, user confirmation.
 - `health`: provider adapter, normalized symptoms and hypotheses.
 - `species`: source-backed reference data, licensed cache.
-- `recommendation`: deterministic safety/care rules plus grounded LLM explanation.
+- `recommendation`: deterministic safety/care rules with source display. No LLM in MVP (ADR-0003 D3).
 - `tasks`: schedule, completion, deferral, log transaction.
 
 External provider calls must occur server-side. Long-running calls should use job states `queued / processing / completed / failed` and may later move to a worker queue.
@@ -26,8 +26,8 @@ Dependencies point one way only: Types → Config → Repo → Service → Runti
 - Secret scan runs on every PR.
 
 ## Documentation maintenance
-A documentation maintenance agent runs on a schedule (frequency to be set). It finds stale references and superseded decisions and opens fix-up PRs. It never merges. The user approves every merge (AGENTS.md).
+A documentation maintenance agent runs weekly, Monday 08:40 KST (ADR-0003 D19). It finds stale references and superseded decisions and opens fix-up PRs. It never merges. The user approves every merge (AGENTS.md).
 
-## Open decisions
-- What async job infrastructure fits deployment time limits?
-- Which offline actions require synchronization in MVP?
+## Resolved decisions ([ADR-0003](decisions/ADR-0003-implementation-decisions.md))
+- Async: synchronous Route Handler calls, no queue. 30s function limit, 25s request deadline, per-call timeout min(10s, remaining − 5s), one retry only if ≥12s remain (D7).
+- Offline: app shell cache and offline banner only; no offline write sync in MVP (D9).

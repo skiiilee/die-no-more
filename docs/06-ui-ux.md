@@ -1,5 +1,7 @@
 # Screens and user flows (draft)
 
+> Superseded by `docs/stage2/01-information-architecture.md` and `docs/stage2/05-pc-mo-wireframe-snapshot.md` (ADR-0003 D1). Kept for history.
+
 Mobile-first PWA, responsive desktop layout. Korean UI.
 
 | ID | Screen | Core contents |

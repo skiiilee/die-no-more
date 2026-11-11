@@ -6,7 +6,7 @@ Candidate providers (not yet contracted or validated):
 - Perenual: species care reference and English common names, subject to its terms for personal, non-commercial use, caching limits and coverage.
 - Google Cloud Translation: Korean display names, saved to the plant DB when first needed.
 - Kindwise plant.health: not adopted.
-- OpenAI: not adopted. Whether an LLM explanation feature exists is undecided.
+- OpenAI and other LLMs: not adopted in MVP ([ADR-0003](decisions/ADR-0003-implementation-decisions.md) D3).
 
 Never send API secrets to browser. Normalize provider responses and preserve provider/model/version provenance. Scores are not necessarily calibrated probabilities.
 

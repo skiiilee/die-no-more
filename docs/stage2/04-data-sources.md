@@ -1,6 +1,6 @@
 # 2단계 · 기능별 사용 API
 
-> **상태:** 초안 · 사용자 검토 전
+> **상태:** 승인됨 (2026-11-12, [ADR-0003](../decisions/ADR-0003-implementation-decisions.md) D1)
 > **관련:** [기능 명세](03-functional-specification.md) F02–F04, F10 · [화면 와이어프레임](02-wireframes.md) S03–S04, S13
 
 ## 기능별 사용 API

@@ -1,6 +1,6 @@
 # MVP functional specification (draft)
 
-Status: Proposed, not approved. See `01-requirements.md` for feature IDs.
+Status: Approved as baseline (2026-11-12, [ADR-0003](decisions/ADR-0003-implementation-decisions.md)). Where this differs from `docs/stage2/`, stage 2 wins. See `01-requirements.md` for feature IDs.
 
 ## Identification
 Input: 1–5 plant photos; camera or gallery. Validate file content/type and size. Output: ranked candidate species with scientific names and provider score labels. User must confirm a candidate, search manually, or save an unknown plant. Store original candidates and final user choice separately.
@@ -12,7 +12,7 @@ Input: photo(s), plant species if confirmed, optional user observations. Output:
 Each physical plant has an independent ID, nickname, location, indoor/outdoor environment, status and chronological photo history. Allow duplicate species across different plants, editing and archiving.
 
 ## Care logging and recommendations
-Log watering, fertilizing, repotting, pruning and free-form observations with actual event timestamps. Combine source-backed species reference, observations and history through deterministic rules; use an LLM only for grounded, comprehensible explanations. For watering, prefer soil-check tasks rather than fixed automatic watering directives.
+Log watering, fertilizing, repotting, pruning and free-form observations with actual event timestamps. Combine source-backed species reference, observations and history through deterministic rules. No LLM explanation layer in MVP (ADR-0003 D3). For watering, prefer soil-check tasks rather than fixed automatic watering directives.
 
 ## Tasks and notifications
 Support pending, due, completed, snoozed, skipped and cancelled. Completion writes an associated care log only when actual action was performed, atomically without duplicates. In-app notifications are P0; push is P1.
