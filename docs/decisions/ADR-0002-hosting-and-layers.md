@@ -24,7 +24,7 @@ ADR-0001 proposed a PWA on Next.js, TypeScript and Supabase. `docs/08-functional
 Items 2–5 are adapted from OpenAI's harness engineering article (2026-02-11), which the team reviewed. Item 2 deliberately differs from the article, where agents often merge their own PRs.
 
 ## Consequences
-- GitHub Pages is no longer the hosting target. `08-functional-review.md` needs its own revision PR; this ADR does not edit it.
+- GitHub Pages is no longer the hosting target. `08-functional-review.md` §1, §3, §4 and §6–7 were updated in the same PR (#5) to match this decision.
 - Layer rules, CI checks and the maintenance agent are implementation tasks for stage 4.
 - API keys follow the rules in `03-architecture.md`: server environment only, never `NEXT_PUBLIC_`.
 
