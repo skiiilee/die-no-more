@@ -1,0 +1,14 @@
+.logout {
+  margin-top: var(--space-5);
+}
+
+.logoutButton {
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
