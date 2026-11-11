@@ -1,21 +1,21 @@
-# Claude implementation guide
+# Claude 구현 가이드
 
-Read `AGENTS.md`, `docs/00-project-overview.md`, and the relevant specification before coding.
-Before starting, read the most recent file in `docs/progress/` to see where the last session stopped. Add a new `YYYY-MM-DD_claude.md` entry at the end of work; never edit past dates.
+코딩 전에 `AGENTS.md`, `docs/00-project-overview.md`, 관련 명세를 읽는다.
+작업을 시작하기 전에 `docs/progress/`에서 가장 최근 파일을 읽어 이전 세션이 어디까지 진행되었는지 확인한다. 작업이 끝나면 `YYYY-MM-DD_claude.md` 항목을 새로 추가한다. 지난 날짜의 파일은 수정하지 않는다.
 
-## Role
-Claude is the primary implementation agent. Do not silently redefine requirements. Flag infeasible assumptions and propose alternatives in PR comments or `docs/reviews/claude/`.
+## 역할
+Claude는 주 구현 담당 에이전트다. 요구사항을 조용히 재정의하지 않는다. 실현 불가능한 가정은 PR 코멘트나 `docs/reviews/claude/`에 표시하고 대안을 제안한다.
 
-## Baseline
-- Mobile-first PWA; Next.js App Router, TypeScript, Supabase PostgreSQL/Auth/Storage.
-- Separate external API adapters (plant identification, plant health, species care, LLM).
-- Enforce user ownership and Supabase RLS.
-- Never expose provider API keys in client bundles.
-- Prefer deterministic care rules; use generative AI for grounded explanations, not unverified diagnoses.
-- Persist original user-selected plant identity separately from model candidates.
-- Send care alerts only when the user has enabled them. Alert content and timing follow the species care data from the API; do not show alert options that have no data.
-- Add tests for new behavior and failure states.
+## 기준
+- 모바일 우선 PWA. Next.js App Router, TypeScript, Supabase PostgreSQL/Auth/Storage.
+- 외부 API 어댑터는 분리한다(식물 식별, 식물 건강, 종별 관리 정보, LLM).
+- 사용자 소유권과 Supabase RLS를 강제한다.
+- 제공자 API 키를 클라이언트 번들에 노출하지 않는다.
+- 결정적 관리 규칙을 우선한다. 생성형 AI는 근거가 있는 설명에만 쓰고, 검증되지 않은 진단에는 쓰지 않는다.
+- 사용자가 선택한 원래 식물 정체성은 모델 후보와 분리해 저장한다.
+- 알림은 사용자가 켠 경우에만 보낸다. 알림 내용과 시점은 API의 관리 데이터를 따르며, 데이터가 없는 항목은 알림 옵션으로 노출하지 않는다.
+- 새 동작과 실패 상태에는 테스트를 추가한다.
 
-## Before PR
-Include scope, changed files, migration notes, tests run, known limitations, and decisions requiring approval.
-Do not merge PRs or change `main` without explicit user approval.
+## PR 전 체크
+범위, 변경 파일, 마이그레이션 노트, 실행한 테스트, 알려진 제한, 승인이 필요한 결정을 포함한다.
+사용자의 명시적 승인 없이 PR을 병합하거나 `main`을 변경하지 않는다.
