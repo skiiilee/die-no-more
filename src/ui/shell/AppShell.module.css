@@ -100,9 +100,10 @@
 
   .nav {
     grid-area: nav;
+    /* Reset the MO "inset: auto 0 0 0" first; a later inset would undo top. */
+    inset: auto;
     position: sticky;
     top: var(--header-height);
-    inset: auto;
     height: calc(100dvh - var(--header-height));
     padding: var(--space-4) var(--space-3);
     border-top: 0;

@@ -16,10 +16,14 @@ test("S01 shows only a password field and a confirm button", async ({ page }) =>
   await expect(page.getByRole("button", { name: "확인" })).toBeVisible();
 });
 
-test("a failed sign-in shows an error and stays on S01", async ({ page }) => {
-  await page.goto("/login");
-  await page.getByPlaceholder("비밀번호").fill("definitely-wrong");
+// CI runs without Supabase env, so this covers the "not configured" path only.
+// Wrong password and rate limiting are covered by src/service/auth-service.test.ts;
+// a real sign-in E2E needs a test Supabase project (not set up yet).
+test("without auth config, sign-in shows the setup message and stays on S01", async ({ page }) => {
+  test.skip(!!process.env.SUPABASE_URL, "auth is configured in this environment");
+  await page.goto("/login?next=%2Fplants");
+  await page.getByPlaceholder("비밀번호").fill("any-password");
   await page.getByRole("button", { name: "확인" }).click();
-  await expect(page.getByRole("alert")).toBeVisible();
-  await expect(page).toHaveURL(/\/login/);
+  await expect(page.getByRole("alert")).toHaveText(/로그인 설정이 아직 완료되지 않았습니다/);
+  await expect(page).toHaveURL(/\/login\?next=%2Fplants$/);
 });
