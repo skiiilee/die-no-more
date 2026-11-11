@@ -181,11 +181,18 @@ select throws_ok(
 -- ---------------------------------------------------------------------------
 -- Storage: private bucket, own folder only
 -- ---------------------------------------------------------------------------
+-- Bucket settings are not readable by signed-in users, so check as the owner.
+reset role;
 select is(
   (select public from storage.buckets where id = 'plant-photos'),
   false,
   'plant-photos bucket is private'
 );
+
+-- Back to A for the upload checks (the bucket check above runs as the owner).
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
 
 select lives_ok(
   $$ insert into storage.objects (bucket_id, name)
