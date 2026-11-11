@@ -24,6 +24,9 @@ test("without auth config, sign-in shows the setup message and stays on S01", as
   await page.goto("/login?next=%2Fplants");
   await page.getByPlaceholder("비밀번호").fill("any-password");
   await page.getByRole("button", { name: "확인" }).click();
-  await expect(page.getByRole("alert")).toHaveText(/로그인 설정이 아직 완료되지 않았습니다/);
+  // Next.js's route announcer also has role="alert", so match ours by text.
+  await expect(
+    page.getByRole("alert").filter({ hasText: "로그인 설정이 아직 완료되지 않았습니다" }),
+  ).toBeVisible();
   await expect(page).toHaveURL(/\/login\?next=%2Fplants$/);
 });
