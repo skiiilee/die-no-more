@@ -81,13 +81,35 @@ create table public.species_care (
   -- API rows have no owner; user rows always do and always have a review status.
   check ((source = 'user') = (user_id is not null)),
   check ((source = 'user') = (review_status is not null)),
-  check (approved_at is null or review_status = 'approved'),
+  -- Approved <=> approval time recorded, both ways (D13). API rows have neither.
+  check (coalesce(review_status = 'approved', false) = (approved_at is not null)),
   unique nulls not distinct (species_id, field, source, user_id)
 );
 
 create trigger species_care_updated_at
   before update on public.species_care
   for each row execute function public.set_updated_at();
+
+-- D13: editing an approved user value sends it back to review. Approval is a
+-- separate update that only sets review_status/approved_at, so a write that
+-- changes the value can never leave it approved.
+create or replace function public.species_care_reset_review()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  if new.source = 'user' and new.value is distinct from old.value then
+    new.review_status = 'pending';
+    new.approved_at = null;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger species_care_reset_review
+  before update on public.species_care
+  for each row execute function public.species_care_reset_review();
 
 -- ---------------------------------------------------------------------------
 -- Pot DB (per user)
@@ -144,6 +166,9 @@ create table public.plant_photos (
   -- removed after 24h (D6).
   attached_at timestamptz,
   created_at timestamptz not null default now(),
+  -- Target for the link tables below, so a link can only use a photo of the
+  -- same pot and owner.
+  unique (id, plant_id, user_id),
   foreign key (plant_id, user_id) references public.user_plants (id, user_id) on delete cascade
 );
 
@@ -173,27 +198,89 @@ create table public.plant_analyses (
   symptoms jsonb not null default '[]'::jsonb,
   candidate_causes jsonb not null default '[]'::jsonb,
   uncertainty_notes text,
-  photo_ids uuid[] not null default '{}',
   analyzed_at timestamptz not null,
   created_at timestamptz not null default now(),
+  unique (id, plant_id, user_id),
   foreign key (plant_id, user_id) references public.user_plants (id, user_id) on delete cascade
 );
 
 create index plant_analyses_plant_idx on public.plant_analyses (plant_id, analyzed_at desc);
 
+-- Photos used for a saved health check. Both FKs carry (plant_id, user_id), so
+-- the photo must exist and belong to the same pot and owner as the analysis.
+create table public.analysis_photos (
+  analysis_id uuid not null,
+  photo_id uuid not null,
+  plant_id uuid not null,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (analysis_id, photo_id),
+  foreign key (analysis_id, plant_id, user_id)
+    references public.plant_analyses (id, plant_id, user_id) on delete cascade,
+  foreign key (photo_id, plant_id, user_id)
+    references public.plant_photos (id, plant_id, user_id) on delete cascade
+);
+
+create index analysis_photos_photo_idx on public.analysis_photos (photo_id);
+
+-- One S08 save (03 §7). The form can write several care logs and one
+-- observation at once; this row groups them under the shared record time and
+-- owns the photos attached in that save. Logs written outside S08 (S09 task
+-- completion) have no record.
+create table public.care_records (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  plant_id uuid not null,
+  recorded_at timestamptz not null,
+  -- Prevents a second record from a double submit of the same form.
+  idempotency_key text not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, idempotency_key),
+  unique (id, plant_id, user_id),
+  foreign key (plant_id, user_id) references public.user_plants (id, user_id) on delete cascade
+);
+
+create index care_records_plant_idx on public.care_records (plant_id, recorded_at desc);
+
+create table public.care_record_photos (
+  record_id uuid not null,
+  photo_id uuid not null,
+  plant_id uuid not null,
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (record_id, photo_id),
+  foreign key (record_id, plant_id, user_id)
+    references public.care_records (id, plant_id, user_id) on delete cascade,
+  foreign key (photo_id, plant_id, user_id)
+    references public.plant_photos (id, plant_id, user_id) on delete cascade
+);
+
+create index care_record_photos_photo_idx on public.care_record_photos (photo_id);
+
 create table public.plant_observations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   plant_id uuid not null,
+  -- The S08 save this observation came from; at most one observation per save.
+  record_id uuid unique,
   soil_state text check (soil_state in ('dry', 'moist', 'wet', 'unknown')),
   leaf_state text,
   pest_observation text,
   notes text,
   observed_at timestamptz not null,
   created_at timestamptz not null default now(),
-  -- An empty observation is not saved (03 §7).
-  check (coalesce(soil_state, leaf_state, pest_observation, notes) is not null),
-  foreign key (plant_id, user_id) references public.user_plants (id, user_id) on delete cascade
+  -- An empty observation is not saved (03 §7). Blank or whitespace-only text
+  -- counts as empty.
+  check (coalesce(
+    soil_state is not null
+      or leaf_state ~ '\S'
+      or pest_observation ~ '\S'
+      or notes ~ '\S',
+    false
+  )),
+  foreign key (plant_id, user_id) references public.user_plants (id, user_id) on delete cascade,
+  foreign key (record_id, plant_id, user_id)
+    references public.care_records (id, plant_id, user_id) on delete cascade
 );
 
 create index plant_observations_plant_idx on public.plant_observations (plant_id, observed_at desc);
@@ -202,6 +289,8 @@ create table public.care_logs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   plant_id uuid not null,
+  -- The S08 save this log came from; null for logs from S09 task completion.
+  record_id uuid,
   care_type text not null check (care_type in ('water', 'fertilize', 'repot', 'prune')),
   performed_at timestamptz not null,
   amount numeric check (amount is null or amount > 0),
@@ -211,7 +300,11 @@ create table public.care_logs (
   idempotency_key text not null,
   created_at timestamptz not null default now(),
   unique (user_id, idempotency_key),
-  foreign key (plant_id, user_id) references public.user_plants (id, user_id) on delete cascade
+  -- One log per activity type per save ("물주기 로그는 1회 생성", 03 §7).
+  unique (record_id, care_type),
+  foreign key (plant_id, user_id) references public.user_plants (id, user_id) on delete cascade,
+  foreign key (record_id, plant_id, user_id)
+    references public.care_records (id, plant_id, user_id) on delete cascade
 );
 
 create index care_logs_plant_idx on public.care_logs (plant_id, care_type, performed_at desc);
@@ -289,6 +382,9 @@ alter table public.user_plants enable row level security;
 alter table public.plant_photos enable row level security;
 alter table public.identification_sessions enable row level security;
 alter table public.plant_analyses enable row level security;
+alter table public.analysis_photos enable row level security;
+alter table public.care_records enable row level security;
+alter table public.care_record_photos enable row level security;
 alter table public.plant_observations enable row level security;
 alter table public.care_logs enable row level security;
 alter table public.care_tasks enable row level security;
@@ -337,7 +433,7 @@ declare
 begin
   foreach t in array array[
     'user_plants', 'plant_photos', 'identification_sessions', 'plant_analyses',
-    'plant_observations', 'care_logs', 'care_tasks', 'api_usage_logs', 'storage_deletions'
+    'analysis_photos', 'care_records', 'care_record_photos', 'plant_observations', 'care_logs', 'care_tasks', 'api_usage_logs', 'storage_deletions'
   ]
   loop
     execute format(

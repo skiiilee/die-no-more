@@ -113,6 +113,13 @@ select throws_ok(
   'B cannot write a user care value in A''s name'
 );
 
+-- B's own photo, used below to check that A cannot link it.
+select lives_ok(
+  $$ insert into public.plant_photos (id, storage_path, photo_type)
+     values ('30000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b/b1.jpg', 'health') $$,
+  'B stores an unattached photo in own folder'
+);
+
 -- ---------------------------------------------------------------------------
 -- Anonymous visitors get nothing
 -- ---------------------------------------------------------------------------
@@ -177,6 +184,264 @@ select throws_ok(
   '23514', null,
   'reminder tasks are soil checks, not watering orders (D16)'
 );
+
+-- Empty observations: blank or whitespace-only text counts as empty (03 §7).
+select throws_ok(
+  $$ insert into public.plant_observations (plant_id, observed_at, notes)
+     values ('20000000-0000-0000-0000-00000000000a', now(), '') $$,
+  '23514', null,
+  'an observation with only an empty note is not saved'
+);
+
+select throws_ok(
+  $$ insert into public.plant_observations (plant_id, observed_at, leaf_state, pest_observation, notes)
+     values ('20000000-0000-0000-0000-00000000000a', now(), '   ', E'\t', E' \n ') $$,
+  '23514', null,
+  'an observation with only whitespace is not saved'
+);
+
+select lives_ok(
+  $$ insert into public.plant_observations (plant_id, observed_at, notes)
+     values ('20000000-0000-0000-0000-00000000000a', now(), '  새 잎이 나옴 ') $$,
+  'an observation with real text is saved'
+);
+
+select lives_ok(
+  $$ insert into public.plant_observations (plant_id, observed_at, soil_state, notes)
+     values ('20000000-0000-0000-0000-00000000000a', now(), 'dry', '') $$,
+  'an observation with only a soil state is saved'
+);
+
+-- ---------------------------------------------------------------------------
+-- Photo links: analyses and S08 records (GPT review on PR #11, item 1)
+-- ---------------------------------------------------------------------------
+select lives_ok(
+  $$ insert into public.user_plants (id, nickname)
+     values ('20000000-0000-0000-0000-00000000000c', '베란다 고무나무') $$,
+  'A registers a second pot'
+);
+
+select lives_ok(
+  $$ insert into public.plant_photos (id, plant_id, storage_path, photo_type) values
+       ('30000000-0000-0000-0000-0000000000a1', '20000000-0000-0000-0000-00000000000a',
+        '00000000-0000-0000-0000-00000000000a/a1.jpg', 'health'),
+       ('30000000-0000-0000-0000-0000000000a2', '20000000-0000-0000-0000-00000000000c',
+        '00000000-0000-0000-0000-00000000000a/a2.jpg', 'health') $$,
+  'A stores one photo on each pot'
+);
+
+select lives_ok(
+  $$ insert into public.plant_analyses (id, plant_id, provider, endpoint, analyzed_at)
+     values ('40000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-00000000000a',
+             'plantnet', 'health', now()) $$,
+  'A saves a health check on the first pot'
+);
+
+select lives_ok(
+  $$ insert into public.analysis_photos (analysis_id, photo_id, plant_id)
+     values ('40000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  'a health check links a photo of the same pot'
+);
+
+select throws_ok(
+  $$ insert into public.analysis_photos (analysis_id, photo_id, plant_id)
+     values ('40000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000ff',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  '23503', null,
+  'a health check cannot link a photo that does not exist'
+);
+
+select throws_ok(
+  $$ insert into public.analysis_photos (analysis_id, photo_id, plant_id)
+     values ('40000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a2',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  '23503', null,
+  'a health check cannot link a photo of another pot'
+);
+
+select throws_ok(
+  $$ insert into public.analysis_photos (analysis_id, photo_id, plant_id)
+     values ('40000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a2',
+             '20000000-0000-0000-0000-00000000000c') $$,
+  '23503', null,
+  'a link cannot claim another pot to match the photo'
+);
+
+select throws_ok(
+  $$ insert into public.analysis_photos (analysis_id, photo_id, plant_id)
+     values ('40000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000b1',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  '23503', null,
+  'a health check cannot link another user''s photo'
+);
+
+-- One S08 save writes a record, its logs, its observation and its photo links.
+select lives_ok(
+  $$ insert into public.care_records (id, plant_id, recorded_at, idempotency_key)
+     values ('50000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-00000000000a',
+             now(), 's08-1') $$,
+  'A saves an S08 record'
+);
+
+select throws_ok(
+  $$ insert into public.care_records (plant_id, recorded_at, idempotency_key)
+     values ('20000000-0000-0000-0000-00000000000a', now(), 's08-1') $$,
+  '23505', null,
+  'a double submit cannot create a second record'
+);
+
+select lives_ok(
+  $$ insert into public.care_logs (plant_id, record_id, care_type, performed_at, idempotency_key) values
+       ('20000000-0000-0000-0000-00000000000a', '50000000-0000-0000-0000-00000000000a', 'water', now(), 's08-1-water'),
+       ('20000000-0000-0000-0000-00000000000a', '50000000-0000-0000-0000-00000000000a', 'fertilize', now(), 's08-1-fert') $$,
+  'one record holds several care logs of different types'
+);
+
+select throws_ok(
+  $$ insert into public.care_logs (plant_id, record_id, care_type, performed_at, idempotency_key)
+     values ('20000000-0000-0000-0000-00000000000a', '50000000-0000-0000-0000-00000000000a',
+             'water', now(), 's08-1-water-again') $$,
+  '23505', null,
+  'one record writes at most one watering log'
+);
+
+select throws_ok(
+  $$ insert into public.care_logs (plant_id, record_id, care_type, performed_at, idempotency_key)
+     values ('20000000-0000-0000-0000-00000000000c', '50000000-0000-0000-0000-00000000000a',
+             'prune', now(), 's08-1-other-pot') $$,
+  '23503', null,
+  'a care log cannot join a record of another pot'
+);
+
+select lives_ok(
+  $$ insert into public.plant_observations (plant_id, record_id, observed_at, soil_state)
+     values ('20000000-0000-0000-0000-00000000000a', '50000000-0000-0000-0000-00000000000a', now(), 'moist') $$,
+  'the record holds its observation'
+);
+
+select throws_ok(
+  $$ insert into public.plant_observations (plant_id, record_id, observed_at, notes)
+     values ('20000000-0000-0000-0000-00000000000a', '50000000-0000-0000-0000-00000000000a', now(), '두 번째') $$,
+  '23505', null,
+  'one record holds at most one observation'
+);
+
+select lives_ok(
+  $$ insert into public.care_record_photos (record_id, photo_id, plant_id)
+     values ('50000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  'a record links a photo of the same pot'
+);
+
+select throws_ok(
+  $$ insert into public.care_record_photos (record_id, photo_id, plant_id)
+     values ('50000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000ff',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  '23503', null,
+  'a record cannot link a photo that does not exist'
+);
+
+select throws_ok(
+  $$ insert into public.care_record_photos (record_id, photo_id, plant_id)
+     values ('50000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a2',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  '23503', null,
+  'a record cannot link a photo of another pot'
+);
+
+select throws_ok(
+  $$ insert into public.care_record_photos (record_id, photo_id, plant_id)
+     values ('50000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000b1',
+             '20000000-0000-0000-0000-00000000000a') $$,
+  '23503', null,
+  'a record cannot link another user''s photo'
+);
+
+select throws_ok(
+  $$ update public.plant_photos set plant_id = '20000000-0000-0000-0000-00000000000c'
+     where id = '30000000-0000-0000-0000-0000000000a1' $$,
+  '23503', null,
+  'a linked photo cannot be moved to another pot'
+);
+
+-- ---------------------------------------------------------------------------
+-- S13 review status (ADR-0003 D13; GPT review on PR #11, item 2)
+-- ---------------------------------------------------------------------------
+select throws_ok(
+  $$ insert into public.species_care (species_id, field, value, source, user_id, review_status)
+     values ('10000000-0000-0000-0000-000000000001', 'soil', '"배수 좋은 흙"', 'user',
+             '00000000-0000-0000-0000-00000000000a', 'approved') $$,
+  '23514', null,
+  'an approved user value must record its approval time'
+);
+
+select throws_ok(
+  $$ update public.species_care set review_status = 'approved'
+     where source = 'user' and field = 'light' $$,
+  '23514', null,
+  'approving without an approval time is rejected'
+);
+
+select throws_ok(
+  $$ update public.species_care set approved_at = now()
+     where source = 'perenual' and field = 'watering' $$,
+  '23514', null,
+  'API values carry no approval time'
+);
+
+select lives_ok(
+  $$ update public.species_care set review_status = 'approved', approved_at = now()
+     where source = 'user' and field = 'light' $$,
+  'A approves the reviewed value with its approval time'
+);
+
+select is(
+  (select review_status || ':' || (approved_at is not null)::text
+     from public.species_care where source = 'user' and field = 'light'),
+  'approved:true',
+  'approval status and time are stored'
+);
+
+select throws_ok(
+  $$ update public.species_care set review_status = 'pending'
+     where source = 'user' and field = 'light' $$,
+  '23514', null,
+  'returning to review must clear the approval time'
+);
+
+update public.species_care set fetched_at = now() where source = 'user' and field = 'light';
+select is(
+  (select review_status from public.species_care where source = 'user' and field = 'light'),
+  'approved',
+  'an update that keeps the value keeps the approval'
+);
+
+update public.species_care set value = '"보통"' where source = 'user' and field = 'light';
+select is(
+  (select review_status || ':' || (approved_at is null)::text
+     from public.species_care where source = 'user' and field = 'light'),
+  'pending:true',
+  'editing an approved value returns it to review and clears the approval time'
+);
+
+update public.species_care
+   set value = '"약함"', review_status = 'approved', approved_at = now()
+ where source = 'user' and field = 'light';
+select is(
+  (select review_status from public.species_care where source = 'user' and field = 'light'),
+  'pending',
+  'a value change cannot be approved in the same write'
+);
+
+-- B cannot see A's records or photo links.
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
+
+select is((select count(*)::int from public.care_records), 0, 'B sees none of A''s S08 records');
+select is((select count(*)::int from public.care_record_photos), 0, 'B sees none of A''s record photo links');
+select is((select count(*)::int from public.analysis_photos), 0, 'B sees none of A''s analysis photo links');
 
 -- ---------------------------------------------------------------------------
 -- Storage: private bucket, own folder only
