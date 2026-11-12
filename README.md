@@ -20,6 +20,21 @@
 
 **Windows 주의:** 작업 폴더 경로의 드라이브 문자가 소문자(`c:\...`)로 열려 있으면 Vitest가 모듈을 두 번 불러 모든 테스트가 `Cannot read properties of undefined (reading 'config')`로 실패합니다. 터미널에서 `cd C:\Users\...`처럼 대문자 드라이브 경로로 이동한 뒤 실행하세요.
 
+## 데이터베이스 (Supabase CLI)
+
+스키마는 `supabase/migrations/`의 SQL 파일로 관리하고, RLS 테스트는 `supabase/tests/`(pgTAP)에 있습니다. CI가 매 PR마다 새 Supabase 스택에 마이그레이션을 적용하고 테스트합니다. 로컬 실행(`npx supabase start`, `npm run test:db`)은 Docker가 필요합니다.
+
+실제 프로젝트에 적용하기 (최초 1회 연결, 이후 PR 병합 때마다 적용):
+
+```
+npx supabase login                       # 브라우저 인증 (사용자 직접)
+npx supabase link --project-ref <ref>    # ref: Project Settings → General → Project ID. DB 비밀번호 입력
+npx supabase db push --dry-run           # 적용될 마이그레이션 확인
+npm run db:push                          # 적용
+```
+
+마이그레이션은 PR이 병합된 뒤에만 실제 프로젝트에 적용합니다.
+
 ## 코드 구조 (ADR-0002 계층)
 
 의존 방향은 한쪽으로만: `src/types` → `src/config` → `src/repo` → `src/service` → `src/runtime`(+ `src/proxy.ts`) → `src/ui`, `src/app`. UI는 Config·Repo를 직접 불러오지 않습니다. `npm run check:layers`가 위반을 막습니다.

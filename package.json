@@ -12,7 +12,9 @@
     "check:docs": "node scripts/check-docs.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check": "npm run lint && npm run typecheck && npm run check:layers && npm run check:docs && npm run test"
+    "check": "npm run lint && npm run typecheck && npm run check:layers && npm run check:docs && npm run test",
+    "test:db": "supabase test db",
+    "db:push": "supabase db push"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -30,6 +32,7 @@
     "dependency-cruiser": "^18.7.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
+    "supabase": "^3.1.0",
     "typescript": "^5",
     "vitest": "^5.1.0"
   },
