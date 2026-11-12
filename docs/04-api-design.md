@@ -83,7 +83,7 @@ Source: [pricing](https://cloud.google.com/products/translate/pricing).
 | Trefle | 60/min | 300/day (personal use; also back off on 429) |
 | Google Translation | 500,000 chars/month free | 200 calls/day and console quota 16,000 chars/day |
 
-### Decisions needing approval
-1. **Perenual free coverage (IDs 1–3000).** Species outside the range get no Perenual care data, so per D16 their water reminder is not offered and S13 '직접 입력하기' is shown. This follows existing rules; no paid plan is assumed.
-2. **Storing Perenual data.** The app caches care values in `species_care` to stay within 100/day. The terms forbid duplicating or publicly displaying Perenual content, and the app is private and single-user. Proposed: keep caching for personal use, never expose it publicly, and refresh rather than bulk-download. Needs the owner's approval.
-3. **Google billing cap.** Set the console quota described above before adding the key.
+### Decisions (owner approved, 2026-11-12)
+1. **Perenual free coverage (IDs 1–3000).** Approved. Species outside the range get no Perenual care data, so per D16 their water reminder is not offered and S13 '직접 입력하기' is shown. No paid plan is assumed.
+2. **Storing Perenual data.** Approved. Care values are cached in `species_care` for personal, private use to stay within 100/day. They are never exposed publicly, and data is fetched per species when needed, never bulk-downloaded.
+3. **Google billing cap.** Approved. The owner sets the console per-day character quota before adding the key.
