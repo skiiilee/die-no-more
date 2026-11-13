@@ -24,8 +24,10 @@ select lives_ok(
 );
 
 select lives_ok(
-  $$ insert into public.user_plants (id, species_id, nickname, initial_last_repotted_range)
-     values ('20000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', '거실 몬스테라', 'never') $$,
+  $$ insert into public.user_plants (id, species_id, nickname, environment, initial_last_watered_range,
+                                   light_level, initial_last_repotted_range, pot_material)
+     values ('20000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-000000000001', '거실 몬스테라',
+             'indoor', 'about_1_week', 'bright_indirect', 'never', 'plastic') $$,
   'A registers a pot; user_id defaults to auth.uid()'
 );
 
@@ -92,8 +94,8 @@ with removed as (
 select is((select count(*)::int from removed), 0, 'B cannot delete A''s pot');
 
 select throws_ok(
-  $$ insert into public.user_plants (user_id, nickname)
-     values ('00000000-0000-0000-0000-00000000000a', 'planted for A') $$,
+  $$ insert into public.user_plants (user_id, nickname, environment, initial_last_watered_range, light_level, initial_last_repotted_range, pot_material)
+     values ('00000000-0000-0000-0000-00000000000a', 'planted for A', 'indoor', 'unknown', 'unknown', 'unknown', 'plastic') $$,
   '42501', null,
   'B cannot create a pot owned by A'
 );
@@ -146,13 +148,15 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
 
 select throws_ok(
-  $$ insert into public.user_plants (initial_last_repotted_range) values ('6개월 이상') $$,
+  $$ insert into public.user_plants (environment, initial_last_watered_range, light_level, initial_last_repotted_range, pot_material)
+     values ('indoor', 'unknown', 'unknown', '6개월 이상', 'plastic') $$,
   '23514', null,
   'repotting range must be one of the ten confirmed codes (05 snapshot rule 1)'
 );
 
 select throws_ok(
-  $$ insert into public.user_plants (status) values ('archived') $$,
+  $$ insert into public.user_plants (status, environment, initial_last_watered_range, light_level, initial_last_repotted_range, pot_material)
+     values ('archived', 'indoor', 'unknown', 'unknown', 'unknown', 'plastic') $$,
   '23514', null,
   'an archived pot must record when it was archived'
 );
@@ -183,6 +187,77 @@ select throws_ok(
      values ('20000000-0000-0000-0000-00000000000a', 'water', now(), 'pending') $$,
   '23514', null,
   'reminder tasks are soil checks, not watering orders (D16)'
+);
+
+-- Provider usage log names the providers actually used (ADR-0004 D1).
+select lives_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status)
+     values ('azure_translator', 'translate', 'success') $$,
+  'usage can be logged for Azure Translator'
+);
+
+select throws_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status)
+     values ('google_translate', 'translate', 'success') $$,
+  '23514', null,
+  'Google Translation is not an adopted provider'
+);
+
+-- A pot can be registered with a typed name or as unknown species (D12).
+select lives_ok(
+  $$ insert into public.user_plants (user_entered_name, environment, initial_last_watered_range, light_level,
+                                   initial_last_repotted_range, pot_material)
+     values ('우리집 고무나무', 'indoor', 'about_1_week', 'bright_indirect', 'months_3_to_6', 'terracotta') $$,
+  'a pot with a typed name and S05 choices is saved'
+);
+
+select lives_ok(
+  $$ insert into public.user_plants (environment, initial_last_watered_range, light_level, initial_last_repotted_range, pot_material)
+     values ('outdoor', 'unknown', 'unknown', 'unknown', 'garden_bed') $$,
+  'a pot with unknown species is saved'
+);
+
+-- Every S05 choice is required (user decision, 2026-11-13).
+select throws_ok(
+  $$ insert into public.user_plants (initial_last_watered_range, light_level, initial_last_repotted_range, pot_material)
+     values ('unknown', 'unknown', 'unknown', 'plastic') $$,
+  '23502', null,
+  'a pot without environment is not saved'
+);
+
+select throws_ok(
+  $$ insert into public.user_plants (environment, light_level, initial_last_repotted_range, pot_material)
+     values ('indoor', 'unknown', 'unknown', 'plastic') $$,
+  '23502', null,
+  'a pot without initial_last_watered_range is not saved'
+);
+
+select throws_ok(
+  $$ insert into public.user_plants (environment, initial_last_watered_range, initial_last_repotted_range, pot_material)
+     values ('indoor', 'unknown', 'unknown', 'plastic') $$,
+  '23502', null,
+  'a pot without light_level is not saved'
+);
+
+select throws_ok(
+  $$ insert into public.user_plants (environment, initial_last_watered_range, light_level, pot_material)
+     values ('indoor', 'unknown', 'unknown', 'plastic') $$,
+  '23502', null,
+  'a pot without initial_last_repotted_range is not saved'
+);
+
+select throws_ok(
+  $$ insert into public.user_plants (environment, initial_last_watered_range, light_level, initial_last_repotted_range)
+     values ('indoor', 'unknown', 'unknown', 'unknown') $$,
+  '23502', null,
+  'a pot without pot_material is not saved'
+);
+
+select throws_ok(
+  $$ insert into public.user_plants (nickname, environment, initial_last_watered_range, light_level, initial_last_repotted_range, pot_material)
+     values ('   ', 'indoor', 'unknown', 'unknown', 'unknown', 'plastic') $$,
+  '23514', null,
+  'an empty nickname is not stored'
 );
 
 -- Empty observations: blank or whitespace-only text counts as empty (03 §7).
@@ -216,8 +291,8 @@ select lives_ok(
 -- Photo links: analyses and S08 records (GPT review on PR #11, item 1)
 -- ---------------------------------------------------------------------------
 select lives_ok(
-  $$ insert into public.user_plants (id, nickname)
-     values ('20000000-0000-0000-0000-00000000000c', '베란다 고무나무') $$,
+  $$ insert into public.user_plants (id, nickname, environment, initial_last_watered_range, light_level, initial_last_repotted_range, pot_material)
+     values ('20000000-0000-0000-0000-00000000000c', '베란다 고무나무', 'indoor', 'unknown', 'unknown', 'unknown', 'plastic') $$,
   'A registers a second pot'
 );
 

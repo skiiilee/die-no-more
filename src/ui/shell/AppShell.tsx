@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { MainNav } from "./MainNav";
+import { Suspense } from "react";
+import { MainNav, NavList } from "./MainNav";
 import styles from "./AppShell.module.css";
 
 /** Signed-in frame: header, PC left menu / MO bottom tabs, content. */
@@ -17,7 +18,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           설정 / 계정
         </Link>
       </header>
-      <MainNav />
+      <Suspense fallback={<NavList />}>
+        <MainNav />
+      </Suspense>
       <main id="main" className={styles.content}>
         {children}
       </main>
