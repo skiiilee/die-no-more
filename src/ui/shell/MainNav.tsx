@@ -11,20 +11,23 @@ import styles from "./AppShell.module.css";
  */
 export function MainNav() {
   const pathname = usePathname();
-  const active = findActiveTab(pathname);
+  return <NavList activeHref={findActiveTab(pathname)?.href} />;
+}
 
+/**
+ * The menu itself. Also the Suspense fallback in AppShell: on pages with a
+ * dynamic segment (e.g. /plants/[id]) the pathname is only known at request
+ * time, so the prerendered shell shows the menu without an active tab.
+ */
+export function NavList({ activeHref }: { activeHref?: string }) {
   return (
     <nav aria-label="주요 메뉴" className={styles.nav}>
       <ul className={styles.navList}>
         {MAIN_TABS.map((tab) => {
-          const isActive = active?.href === tab.href;
+          const isActive = activeHref === tab.href;
           return (
             <li key={tab.href}>
-              <Link
-                href={tab.href}
-                className={styles.navLink}
-                aria-current={isActive ? "page" : undefined}
-              >
+              <Link href={tab.href} className={styles.navLink} aria-current={isActive ? "page" : undefined}>
                 {tab.label}
               </Link>
             </li>

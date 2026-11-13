@@ -185,6 +185,38 @@ select throws_ok(
   'reminder tasks are soil checks, not watering orders (D16)'
 );
 
+-- Provider usage log names the providers actually used (ADR-0004 D1).
+select lives_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status)
+     values ('azure_translator', 'translate', 'success') $$,
+  'usage can be logged for Azure Translator'
+);
+
+select throws_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status)
+     values ('google_translate', 'translate', 'success') $$,
+  '23514', null,
+  'Google Translation is not an adopted provider'
+);
+
+-- A pot can be registered with only a typed name or as unknown species (D12).
+select lives_ok(
+  $$ insert into public.user_plants (user_entered_name, environment, initial_last_watered_range, light_level, pot_material)
+     values ('우리집 고무나무', 'indoor', 'about_1_week', 'bright_indirect', 'terracotta') $$,
+  'a pot with a typed name and S05 choices is saved'
+);
+
+select lives_ok(
+  $$ insert into public.user_plants (environment) values ('outdoor') $$,
+  'a pot with unknown species is saved'
+);
+
+select throws_ok(
+  $$ insert into public.user_plants (nickname) values ('   ') $$,
+  '23514', null,
+  'an empty nickname is not stored'
+);
+
 -- Empty observations: blank or whitespace-only text counts as empty (03 §7).
 select throws_ok(
   $$ insert into public.plant_observations (plant_id, observed_at, notes)
