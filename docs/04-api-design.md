@@ -73,7 +73,7 @@ Sources: [getting started](https://docs.trefle.io/docs/guides/getting-started), 
 Source: [pricing](https://cloud.google.com/products/translate/pricing).
 
 - **Quota:** first 500,000 characters per month free (Basic and Advanced combined, does not roll over), then **$20 per million characters**. Whitespace counts.
-- **Billing risk (D8):** the API needs a billing account, and Google bills automatically above the free amount. D8 forbids automatic paid use, so the owner must also set a per-day character quota on the API in the Cloud console (for example 16,000 characters/day ≈ 500,000/31) in addition to our `api_usage_logs` limit. A species name is about 20–40 characters, so normal use is far below the free amount.
+- **Billing risk (D8):** the API needs a billing account, and Google bills automatically above the free amount. D8 forbids automatic paid use, so the owner sets a per-day character quota on the API in the Cloud console (**10,000 characters/day**, owner decision 2026-11-13; ≤ 310,000/month, inside the free amount) in addition to our `api_usage_logs` limit. A species name is about 20–40 characters, so normal use is far below the free amount.
 
 ### Limits to set in server env (D8)
 | Provider | Provider limit | Our daily limit (proposed) |
@@ -81,9 +81,52 @@ Source: [pricing](https://cloud.google.com/products/translate/pricing).
 | Pl@ntNet | 500/day (UTC) | 450/day (KST day; margin for the UTC/KST offset) |
 | Perenual | 100/day | 90/day |
 | Trefle | 60/min | 300/day (personal use; also back off on 429) |
-| Google Translation | 500,000 chars/month free | 200 calls/day and console quota 16,000 chars/day |
+| Google Translation | 500,000 chars/month free | 200 calls/day and console quota 10,000 chars/day |
 
 ### Decisions (owner approved, 2026-11-12)
 1. **Perenual free coverage (IDs 1–3000).** Approved. Species outside the range get no Perenual care data, so per D16 their water reminder is not offered and S13 '직접 입력하기' is shown. No paid plan is assumed.
 2. **Storing Perenual data.** Approved. Care values are cached in `species_care` for personal, private use to stay within 100/day. They are never exposed publicly, and data is fetched per species when needed, never bulk-downloaded.
-3. **Google billing cap.** Approved. The owner sets the console per-day character quota before adding the key.
+3. **Google billing cap.** Approved. The owner set the console quota to 10,000 characters per day (2026-11-13).
+
+## Live check (2026-11-13)
+
+One run with the owner's keys from a local machine (about 30 calls). Keys were never printed or committed.
+
+### Perenual
+- **Free range answer:** a free key asking for a species ID above 3000 gets **HTTP 429** with the plain-text body `Please Upgrade Plan - https://perenual.com/subscription-api-pricing. Sorry😬`, while `x-ratelimit-remaining` still shows quota left (85 of 100). The adapter must read this as "outside the free range" (no care data, D16 → no water reminder, show S13), **not** as a quota or rate limit, and must not retry it.
+- **Benchmark format:** `watering_general_benchmark` came back as `{"value": "\"7-10\"", "unit": "days"}` for *Epipremnum aureum* (ID 2773): a string with literal quote characters around the range. The parser strips quotes and whitespace and accepts only `<min>-<max>` or `<n>` with `unit = "days"`; anything else means "no benchmark" (no reminder, no invented interval).
+- **Paid-only fields:** inside the free range the `x…` fields and `other_images` hold an upgrade message instead of data. The adapter ignores them.
+- **Coverage of common houseplants (`species-list` search, first exact match):**
+
+| Plant | Perenual ID | Free care data |
+|---|---|---|
+| Aloe vera | 728 | Yes |
+| Calathea lancifolia | 1469 | Yes |
+| Chlorophytum comosum 'Vittatum' | 1847 | Yes (cultivar only) |
+| Epipremnum aureum (pothos) | 2773 | Yes |
+| Ficus elastica | 2961 | Yes |
+| Ficus lyrata | 2963 | Yes |
+| Monstera deliciosa | 5257 | **No** |
+| Philodendron hederaceum | 5869 | **No** |
+| Sansevieria trifasciata | 7171 | **No** |
+| Spathiphyllum (peace lily) | 7463 | **No** |
+| Zamioculcas zamiifolia (ZZ) | 8386 | **No** |
+| Pilea peperomioides | not found | **No** |
+
+  6 of 12 common houseplants have free care data. Under the approved rule the other half gets no water reminder and is sent to S13 '직접 입력하기'.
+- `species-list` search itself works for every ID (search results are not limited to 1–3000), so name search and the confirmed species are unaffected.
+
+### Pl@ntNet
+- Key works. `/v2/languages` lists 52 languages and **no Korean (`ko`)**. Common names and disease descriptions come back in English (or another listed language). Korean display names go through Google Translation as planned; disease descriptions need a decision (see below).
+
+### Trefle
+- The token was rejected: `401 Invalid access token`. Needs a new token from the Trefle account page (the account token, not a client-side JWT). Korean `common_names` not yet checked.
+
+### Google Cloud Translation
+- The key was rejected for server use: `403 API_KEY_HTTP_REFERRER_BLOCKED` ("Requests from referer <empty> are blocked"). The key has a website (HTTP referrer) restriction, but the app calls Google from the server, which sends no referrer. Change the key's application restriction to **None** and keep the **API restriction = Cloud Translation API** only. Vercel has no fixed outbound IP, so an IP restriction does not fit either.
+
+### Open items
+1. Trefle: replace the token, then re-run the check.
+2. Google: change the key restriction as above, then re-run the check.
+3. **Decision needed:** Pl@ntNet health results have no Korean. Options: (a) show the English description as returned with the EPPO code, (b) translate it with Google Translation and label it "기계 번역".
+4. Owner awareness: half of the common houseplants checked (including Monstera) get no Perenual care data on the free plan.
