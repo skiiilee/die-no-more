@@ -120,13 +120,15 @@ One run with the owner's keys from a local machine (about 30 calls). Keys were n
 - Key works. `/v2/languages` lists 52 languages and **no Korean (`ko`)**. Common names and disease descriptions come back in English (or another listed language). Korean display names go through Google Translation as planned; disease descriptions need a decision (see below).
 
 ### Trefle
-- The token was rejected: `401 Invalid access token`. Needs a new token from the Trefle account page (the account token, not a client-side JWT). Korean `common_names` not yet checked.
+- First run: token rejected (`401 Invalid access token`). After the owner replaced it (2026-11-13): search works.
+- **Korean names exist.** `GET /api/v1/plants/{id}` → `main_species.common_names.ko` returned `["몬스테라"]` for *Monstera deliciosa* (29 languages listed). Coverage for other species is not yet measured.
 
 ### Google Cloud Translation
-- The key was rejected for server use: `403 API_KEY_HTTP_REFERRER_BLOCKED` ("Requests from referer <empty> are blocked"). The key has a website (HTTP referrer) restriction, but the app calls Google from the server, which sends no referrer. Change the key's application restriction to **None** and keep the **API restriction = Cloud Translation API** only. Vercel has no fixed outbound IP, so an IP restriction does not fit either.
+- First run: `403 API_KEY_HTTP_REFERRER_BLOCKED`, because the key had a website (referrer) restriction and server calls send no referrer. The owner changed the application restriction to None, keeping the API restriction to Cloud Translation only (2026-11-13). Now works.
+- Quality note: "Swiss cheese plant" (Perenual's common name for *Monstera deliciosa*) translated to "스위스 치즈 식물", while Trefle gives "몬스테라". Literal translation of English common names can give names Korean users do not use.
 
-### Open items
-1. Trefle: replace the token, then re-run the check.
-2. Google: change the key restriction as above, then re-run the check.
-3. **Decision needed:** Pl@ntNet health results have no Korean. Options: (a) show the English description as returned with the EPPO code, (b) translate it with Google Translation and label it "기계 번역".
-4. Owner awareness: half of the common houseplants checked (including Monstera) get no Perenual care data on the free plan.
+### Decisions and open items
+1. Trefle and Google keys: fixed by the owner and re-checked (2026-11-13).
+2. **Health result language (owner decision, 2026-11-13):** Pl@ntNet disease descriptions are translated to Korean with Google Translation and shown **without** a "machine translation" label. The English original and EPPO code are stored next to the translation (provenance), and translations are cached so the same description is translated once.
+3. Owner awareness: half of the common houseplants checked (including Monstera) get no Perenual care data on the free plan.
+4. **Proposal (needs approval):** Korean display name order = Trefle `common_names.ko` first, Google Translation of the English common name only when Trefle has none. ADR-0003 named Google Translation as the source; this adds Trefle in front of it.
