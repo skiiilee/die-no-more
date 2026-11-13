@@ -63,16 +63,16 @@ export type PlantIdentity =
   | { kind: "manual"; name: string }
   | { kind: "unknown" };
 
-/** Validated S05 input, ready to store. Empty optional text is null. */
+/** Validated S05 input, ready to store. Every choice is required; empty optional text is null. */
 export type PlantRegistration = {
   identity: PlantIdentity;
   nickname: string | null;
   location: string | null;
   environment: EnvironmentCode;
-  lastWatered: LastWateredCode | null;
-  lightLevel: LightLevelCode | null;
-  lastRepotted: LastRepottedCode | null;
-  potMaterial: PotMaterialCode | null;
+  lastWatered: LastWateredCode;
+  lightLevel: LightLevelCode;
+  lastRepotted: LastRepottedCode;
+  potMaterial: PotMaterialCode;
   memo: string | null;
   waterReminder: boolean;
   fertilizerReminder: boolean;
@@ -118,13 +118,13 @@ export type PotView = {
   nickname: string | null;
   userEnteredName: string | null;
   species: SpeciesSummary | null;
-  environment: EnvironmentCode | null;
+  environment: EnvironmentCode;
   location: string | null;
   memo: string | null;
-  lastWatered: LastWateredCode | null;
-  lightLevel: LightLevelCode | null;
-  lastRepotted: LastRepottedCode | null;
-  potMaterial: PotMaterialCode | null;
+  lastWatered: LastWateredCode;
+  lightLevel: LightLevelCode;
+  lastRepotted: LastRepottedCode;
+  potMaterial: PotMaterialCode;
   initialStateRecordedAt: string;
   waterReminder: boolean;
   fertilizerReminder: boolean;

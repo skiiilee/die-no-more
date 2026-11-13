@@ -5,7 +5,6 @@ import {
   LIGHT_LEVELS,
   POT_MATERIALS,
   TEXT_LIMITS,
-  type EnvironmentCode,
   type Option,
   type PlantIdentity,
   type PlantRegistration,
@@ -70,13 +69,9 @@ export function reminderOptions(
   return { water: care.hasWateringBenchmark, fertilizer: care.hasFertilizerInterval };
 }
 
-function pick<T extends string>(
-  options: readonly Option<T>[],
-  value: string | null | undefined,
-): { ok: true; code: T | null } | { ok: false } {
-  if (value === null || value === undefined || value === "") return { ok: true, code: null };
-  const match = options.find((option) => option.code === value);
-  return match ? { ok: true, code: match.code } : { ok: false };
+/** A required choice: must be one of the confirmed codes (S05, all required). */
+function pick<T extends string>(options: readonly Option<T>[], value: string | null | undefined): T | null {
+  return options.find((option) => option.code === value)?.code ?? null;
 }
 
 function limited(
@@ -90,8 +85,9 @@ function limited(
 }
 
 /**
- * Validates the S05 form. Choices must be one of the confirmed codes; the
- * initial-state choices may be left empty. Reminder flags are only accepted
+ * Validates the S05 form. Every choice is required and must be one of the
+ * confirmed codes; "don't know" is an explicit option where the list has one.
+ * Nickname, location and memo stay optional. Reminder flags are only accepted
  * for the types S05 offered, so a hidden option can never be switched on.
  */
 export function parseRegistration(
@@ -111,27 +107,26 @@ export function parseRegistration(
   if (!memo.ok) errors.memo = memo.message;
 
   const environment = pick(ENVIRONMENTS, input.environment);
-  if (!environment.ok || environment.code === null) errors.environment = "실내 또는 실외를 선택해 주세요.";
+  if (!environment) errors.environment = "실내 또는 실외를 선택해 주세요.";
   const lastWatered = pick(LAST_WATERED_RANGES, input.lastWatered);
-  if (!lastWatered.ok) errors.lastWatered = "목록에서 선택해 주세요.";
+  if (!lastWatered) errors.lastWatered = "마지막으로 물 준 시기를 선택해 주세요.";
   const lightLevel = pick(LIGHT_LEVELS, input.lightLevel);
-  if (!lightLevel.ok) errors.lightLevel = "목록에서 선택해 주세요.";
+  if (!lightLevel) errors.lightLevel = "빛이 들어오는 정도를 선택해 주세요.";
   const lastRepotted = pick(LAST_REPOTTED_RANGES, input.lastRepotted);
-  if (!lastRepotted.ok) errors.lastRepotted = "목록에서 선택해 주세요.";
+  if (!lastRepotted) errors.lastRepotted = "마지막 분갈이 시기를 선택해 주세요.";
   const potMaterial = pick(POT_MATERIALS, input.potMaterial);
-  if (!potMaterial.ok) errors.potMaterial = "목록에서 선택해 주세요.";
+  if (!potMaterial) errors.potMaterial = "화분의 재질을 선택해 주세요.";
 
   if (
-    Object.keys(errors).length > 0 ||
     !identity.ok ||
     !nickname.ok ||
     !location.ok ||
     !memo.ok ||
-    !environment.ok ||
-    !lastWatered.ok ||
-    !lightLevel.ok ||
-    !lastRepotted.ok ||
-    !potMaterial.ok
+    !environment ||
+    !lastWatered ||
+    !lightLevel ||
+    !lastRepotted ||
+    !potMaterial
   ) {
     return { ok: false, errors };
   }
@@ -142,11 +137,11 @@ export function parseRegistration(
       identity: identity.identity,
       nickname: nickname.text,
       location: location.text,
-      environment: environment.code as EnvironmentCode,
-      lastWatered: lastWatered.code,
-      lightLevel: lightLevel.code,
-      lastRepotted: lastRepotted.code,
-      potMaterial: potMaterial.code,
+      environment,
+      lastWatered,
+      lightLevel,
+      lastRepotted,
+      potMaterial,
       memo: memo.text,
       waterReminder: offered.water && input.waterReminder === "on",
       fertilizerReminder: offered.fertilizer && input.fertilizerReminder === "on",

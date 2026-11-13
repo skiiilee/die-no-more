@@ -83,9 +83,16 @@ describe("reminderOptions (05 rule 2, D16)", () => {
 });
 
 describe("parseRegistration", () => {
-  const minimal = { mode: "unknown", environment: "indoor" };
+  const minimal = {
+    mode: "unknown",
+    environment: "indoor",
+    lastWatered: "unknown",
+    lightLevel: "unknown",
+    lastRepotted: "unknown",
+    potMaterial: "plastic",
+  };
 
-  it("accepts a pot with only the required choices", () => {
+  it("accepts a pot with every choice made and no optional text", () => {
     const result = parseRegistration(minimal, NONE);
     expect(result).toEqual({
       ok: true,
@@ -94,10 +101,10 @@ describe("parseRegistration", () => {
         nickname: null,
         location: null,
         environment: "indoor",
-        lastWatered: null,
-        lightLevel: null,
-        lastRepotted: null,
-        potMaterial: null,
+        lastWatered: "unknown",
+        lightLevel: "unknown",
+        lastRepotted: "unknown",
+        potMaterial: "plastic",
         memo: null,
         waterReminder: false,
         fertilizerReminder: false,
@@ -157,12 +164,26 @@ describe("parseRegistration", () => {
     });
   });
 
-  it("requires indoor or outdoor", () => {
-    expect(parseRegistration({ mode: "unknown" }, NONE)).toMatchObject({
+  it("requires every choice (user decision, 2026-11-13)", () => {
+    expect(parseRegistration({ mode: "unknown" }, NONE)).toEqual({
       ok: false,
-      errors: { environment: expect.any(String) },
+      errors: {
+        environment: expect.any(String),
+        lastWatered: expect.any(String),
+        lightLevel: expect.any(String),
+        lastRepotted: expect.any(String),
+        potMaterial: expect.any(String),
+      },
     });
   });
+
+  it.each(["environment", "lastWatered", "lightLevel", "lastRepotted", "potMaterial"] as const)(
+    "rejects a form that leaves %s empty",
+    (field) => {
+      const result = parseRegistration({ ...minimal, [field]: "" }, NONE);
+      expect(result).toEqual({ ok: false, errors: { [field]: expect.any(String) } });
+    },
+  );
 
   it("reports an identity problem instead of saving", () => {
     expect(parseRegistration({ ...minimal, mode: "manual", name: "" }, NONE)).toMatchObject({

@@ -12,8 +12,6 @@ import {
 } from "@/types/plant";
 import styles from "./plants.module.css";
 
-const NOT_CHOSEN = "선택 안 함";
-
 const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZone: "Asia/Seoul" });
 
 /**
@@ -23,8 +21,8 @@ const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZ
  */
 export function PlantDetail({ pot }: { pot: PotView }) {
   const recordedOn = dateFormat.format(new Date(pot.initialStateRecordedAt));
-  const label = <T extends string>(options: readonly { code: T; label: string }[], code: T | null) =>
-    optionLabel(options, code) ?? NOT_CHOSEN;
+  const label = <T extends string>(options: readonly { code: T; label: string }[], code: T) =>
+    optionLabel(options, code) ?? code;
 
   return (
     <section className={styles.screen} aria-labelledby="pot-title">

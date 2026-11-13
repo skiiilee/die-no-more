@@ -59,7 +59,14 @@ describe("loadRegistrationContext", () => {
 });
 
 describe("registerPot", () => {
-  const form = { mode: "manual", name: "고무나무", environment: "indoor", nickname: "거실", memo: "메모" };
+  const choices = {
+    environment: "indoor",
+    lastWatered: "about_1_week",
+    lightLevel: "medium",
+    lastRepotted: "unknown",
+    potMaterial: "plastic",
+  };
+  const form = { mode: "manual", name: "고무나무", nickname: "거실", memo: "메모", ...choices };
 
   it("stores a valid pot and returns its id", async () => {
     const store = fakeStore();
@@ -76,7 +83,7 @@ describe("registerPot", () => {
       state: {
         status: "invalid",
         errors: { environment: expect.any(String), potMaterial: expect.any(String) },
-        values: { nickname: "거실", memo: "메모", environment: "", potMaterial: "wood" },
+        values: { nickname: "거실", memo: "메모", ...choices, environment: "", potMaterial: "wood" },
       },
     });
     expect(store.insertPot).not.toHaveBeenCalled();
@@ -86,13 +93,13 @@ describe("registerPot", () => {
     const result = await registerPot(fakeStore({ insert: "fail" }), form, false);
     expect(result).toEqual({
       ok: false,
-      state: { status: "save_failed", errors: {}, values: { nickname: "거실", memo: "메모", environment: "indoor" } },
+      state: { status: "save_failed", errors: {}, values: { nickname: "거실", memo: "메모", ...choices } },
     });
   });
 
   it("refuses to save when the chosen species no longer exists", async () => {
     const store = fakeStore({ species: null });
-    const result = await registerPot(store, { mode: "species", species: SPECIES.id, environment: "indoor" }, false);
+    const result = await registerPot(store, { mode: "species", species: SPECIES.id, ...choices }, false);
     expect(result).toMatchObject({ ok: false, state: { status: "invalid", errors: { identity: expect.any(String) } } });
     expect(store.insertPot).not.toHaveBeenCalled();
   });
@@ -110,9 +117,9 @@ describe("potInsertRow", () => {
     location: null,
     environment: "indoor",
     lastWatered: "unknown",
-    lightLevel: null,
+    lightLevel: "low",
     lastRepotted: "never",
-    potMaterial: null,
+    potMaterial: "glass",
     memo: null,
     waterReminder: false,
     fertilizerReminder: false,

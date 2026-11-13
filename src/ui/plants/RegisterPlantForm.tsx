@@ -30,7 +30,8 @@ type Props = {
 
 /**
  * S05 내 화분 등록 (wireframe pages 17–18, choices from page 38). One scrolling
- * form on mobile, two columns on PC. Period choices are stored as categories,
+ * form on mobile, two columns on PC. Every choice is required; text fields are
+ * optional. Period choices are stored as categories,
  * never as dates (05 rule 1). Reminder choices appear only for types the
  * species' API data supports (05 rule 2); otherwise the area is hidden.
  */
@@ -126,7 +127,6 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
             options={ENVIRONMENTS}
             defaultValue={values.environment ?? "indoor"}
             error={errors.environment}
-            required
           />
           <TextAreaField
             name="memo"
@@ -290,14 +290,14 @@ function TextAreaField({ name, label, max, defaultValue, error }: FieldProps & {
   );
 }
 
+/** Every S05 choice is required (user decision, 2026-11-13). */
 function SelectField<T extends string>({
   name,
   label,
   options,
   defaultValue,
   error,
-  required = false,
-}: FieldProps & { options: readonly Option<T>[]; required?: boolean }) {
+}: FieldProps & { options: readonly Option<T>[] }) {
   return (
     <div className={styles.field}>
       <label htmlFor={name} className={styles.label}>
@@ -310,9 +310,11 @@ function SelectField<T extends string>({
         defaultValue={defaultValue ?? ""}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(name, error)}
-        required={required}
+        required
       >
-        {required ? null : <option value="">선택 안 함</option>}
+        <option value="" disabled>
+          선택해 주세요
+        </option>
         {options.map((option) => (
           <option key={option.code} value={option.code}>
             {option.label}
