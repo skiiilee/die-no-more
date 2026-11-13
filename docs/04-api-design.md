@@ -4,7 +4,8 @@ Candidate providers (documentation checked 2026-11-12, see "Provider check" belo
 - Pl@ntNet: photo identification candidates (`/v2/identify`) and health candidates (`/v2/diseases/identify`).
 - Trefle: name search candidates.
 - Perenual: species care reference and English common names, subject to its terms for personal, non-commercial use, caching limits and coverage.
-- Google Cloud Translation: Korean display names, saved to the plant DB when first needed.
+- Azure Translator (F0, free): Korean text when no provider gives Korean, saved and reused ([ADR-0004](decisions/ADR-0004-translation-and-quota.md)). Connected last; until then the app uses the ADR-0004 D3 fallbacks.
+- Google Cloud Translation: not adopted (requires a visible Google attribution badge; ADR-0004 D1). Checked on 2026-11-12/13; records below are kept as history.
 - Kindwise plant.health: not adopted.
 - OpenAI and other LLMs: not adopted in MVP ([ADR-0003](decisions/ADR-0003-implementation-decisions.md) D3).
 
@@ -43,7 +44,7 @@ Checked against each provider's public documentation on 2026-11-12 (ADR-0003 D8,
 ### Pl@ntNet — photo identification and health candidates
 Sources: [pricing](https://my.plantnet.org/pricing), [terms](https://my.plantnet.org/terms_of_use), [identify](https://my.plantnet.org/doc/api/identify), [diseases](https://my.plantnet.org/doc/api/diseases).
 
-- **Quota:** 500 identifications per day, reset at midnight UTC (09:00 KST). Over quota → HTTP 429; the free plan is never billed. Species and disease identification share this quota (1 credit per request).
+- **Quota:** 500 identifications per day, reset at midnight UTC (09:00 KST). Over quota → HTTP 429 with `Retry-After` (next 00:00 UTC); every response carries a `RateLimit` header (`r` remaining, `t` seconds to reset); `GET /v2/quota/daily` returns `count`/`total`/`remaining` per request type ([quota](https://my.plantnet.org/doc/api/quota)). The free plan is never billed. Species and disease identification share this quota (1 credit per request).
 - **Terms:** free use allowed up to 500/day, commercial use too within that limit. One free account per person. Attribution is optional for free use. Submitted photos are kept only in memory during identification; Pl@ntNet stores date, time and image URLs of queries. Caching of results is not addressed.
 - **Request:** `POST https://my-api.plantnet.org/v2/identify/{project}?api-key=…` (`project=all`). `images` 1–5 files of one plant, JPEG or PNG only, total ≤ 50 MB. `organs` one per image: `leaf` | `flower` | `fruit` | `bark` | `auto` (default). Optional `nb-results`, `lang`, `no-reject`, `include-related-images`, `detailed`.
 - **Response:** `results[]` with `score` (0–1), `species.scientificNameWithoutAuthor`, `species.commonNames`, `gbif.id`, `powo.id`; plus `bestMatch`, `version` (engine), `remainingIdentificationRequests`. Non-plant photo or no prediction → **404 "Species not found"**.
@@ -69,24 +70,28 @@ Sources: [getting started](https://docs.trefle.io/docs/guides/getting-started), 
 - **Response:** `data[]` with `id`, `scientific_name`, `common_name` (English, may be null), `family`, `genus`, `synonyms`, `image_url`; `meta.total`. Details have `common_names` per language. **Live check:** whether Korean names exist (`common_names.ko`); search examples are English only.
 - Growth fields (`light` 1–9 etc.) are ecological indicators calibrated for European flora, not care instructions. They are not used for reminders.
 
-### Google Cloud Translation — Korean display names
-Source: [pricing](https://cloud.google.com/products/translate/pricing).
+### Google Cloud Translation — not adopted (history)
+Sources: [pricing](https://cloud.google.com/products/translate/pricing), [attribution](https://docs.cloud.google.com/translate/attribution).
+
+- **Not adopted (ADR-0004 D1):** results shown to users must carry a Google attribution badge, which conflicts with the owner's decision to show translations without a provider label. The notes below are kept as the check history.
 
 - **Quota:** first 500,000 characters per month free (Basic and Advanced combined, does not roll over), then **$20 per million characters**. Whitespace counts.
 - **Billing risk (D8):** the API needs a billing account, and Google bills automatically above the free amount. D8 forbids automatic paid use, so the owner sets a per-day character quota on the API in the Cloud console (**10,000 characters/day**, owner decision 2026-11-13; ≤ 310,000/month, inside the free amount) in addition to our `api_usage_logs` limit. A species name is about 20–40 characters, so normal use is far below the free amount.
 
-### Limits to set in server env (D8)
-| Provider | Provider limit | Our daily limit (proposed) |
-|---|---|---|
-| Pl@ntNet | 500/day (UTC) | 450/day (KST day; margin for the UTC/KST offset) |
-| Perenual | 100/day | 90/day |
-| Trefle | 60/min | 300/day (personal use; also back off on 429) |
-| Google Translation | 500,000 chars/month free | 200 calls/day and console quota 10,000 chars/day |
+### Limits to set in server env (D8, ADR-0004 D5)
+Provider protection counts on the provider's own day boundary and follows the provider's remaining-count and 429 answers. A KST day count is only our own cap where the provider documents no boundary.
+
+| Provider | Provider limit | Our cap | Counted on |
+|---|---|---|---|
+| Pl@ntNet | 500/day | 450/day; stop when `RateLimit` `r` reaches 0, or on 429 until `Retry-After` | **UTC day** (resets 09:00 KST) |
+| Perenual | 100/day (boundary not documented) | 90/day; stop on 429, except the "Please Upgrade Plan" body (outside free range, not a limit) | KST day |
+| Trefle | 60/min | 300/day; back off on 429 with `Retry-After` | KST day |
+| Azure Translator F0 | 2,000,000 chars/month, stops when used up | 200 calls/day | KST day (F0 stops itself at the monthly amount) |
 
 ### Decisions (owner approved, 2026-11-12)
 1. **Perenual free coverage (IDs 1–3000).** Approved. Species outside the range get no Perenual care data, so per D16 their water reminder is not offered and S13 '직접 입력하기' is shown. No paid plan is assumed.
 2. **Storing Perenual data.** Approved. Care values are cached in `species_care` for personal, private use to stay within 100/day. They are never exposed publicly, and data is fetched per species when needed, never bulk-downloaded.
-3. **Google billing cap.** Approved. The owner set the console quota to 10,000 characters per day (2026-11-13).
+3. **Google billing cap.** Approved. The owner set the console quota to 10,000 characters per day (2026-11-13). Superseded: Google is not adopted (ADR-0004).
 
 ## Live check (2026-11-13)
 
@@ -117,18 +122,19 @@ One run with the owner's keys from a local machine (about 30 calls). Keys were n
 - `species-list` search itself works for every ID (search results are not limited to 1–3000), so name search and the confirmed species are unaffected.
 
 ### Pl@ntNet
-- Key works. `/v2/languages` lists 52 languages and **no Korean (`ko`)**. Common names and disease descriptions come back in English (or another listed language). Korean display names go through Google Translation as planned; disease descriptions need a decision (see below).
+- Key works. `/v2/languages` lists 52 languages and **no Korean (`ko`)**. Common names and disease descriptions come back in English (or another listed language). Korean text follows ADR-0004 D2 (provider Korean first, then Azure).
 
 ### Trefle
 - First run: token rejected (`401 Invalid access token`). After the owner replaced it (2026-11-13): search works.
 - **Korean names exist.** `GET /api/v1/plants/{id}` → `main_species.common_names.ko` returned `["몬스테라"]` for *Monstera deliciosa* (29 languages listed). Coverage for other species is not yet measured.
 
-### Google Cloud Translation
+### Google Cloud Translation (history; not adopted)
 - First run: `403 API_KEY_HTTP_REFERRER_BLOCKED`, because the key had a website (referrer) restriction and server calls send no referrer. The owner changed the application restriction to None, keeping the API restriction to Cloud Translation only (2026-11-13). Now works.
 - Quality note: "Swiss cheese plant" (Perenual's common name for *Monstera deliciosa*) translated to "스위스 치즈 식물", while Trefle gives "몬스테라". Literal translation of English common names can give names Korean users do not use.
 
 ### Decisions and open items
 1. Trefle and Google keys: fixed by the owner and re-checked (2026-11-13).
-2. **Health result language (owner decision, 2026-11-13):** Pl@ntNet disease descriptions are translated to Korean with Google Translation and shown **without** a "machine translation" label. The English original and EPPO code are stored next to the translation (provenance), and translations are cached so the same description is translated once.
+2. **Health result language (owner decision, 2026-11-13):** Pl@ntNet disease descriptions are translated to Korean and shown **without** a "machine translation" label. The provider changed from Google to Azure Translator F0 for this reason (ADR-0004 D1). The English original, EPPO code, translation and translation provider are stored separately, and the same text is translated once. If translation is unavailable or fails, the English original is shown with the EPPO code (ADR-0004 D3).
 3. Owner awareness: half of the common houseplants checked (including Monstera) get no Perenual care data on the free plan.
-4. **Korean text source (owner decision, 2026-11-13):** when provider data already has Korean (for example Trefle `common_names.ko`), use it; call Google Translation only when no provider gives Korean. This applies to display names and any other provider text. It refines ADR-0003, which named Google Translation as the source for Korean names.
+4. **Korean text source (owner decision, 2026-11-13):** when provider data already has Korean (for example Trefle `common_names.ko`), use it; translate only when no provider gives Korean. This applies to display names and any other provider text (ADR-0004 D2).
+5. **Azure live check:** pending. The owner has not created the Azure account yet; translation is connected last (ADR-0004 D4).
