@@ -29,9 +29,11 @@
 ```
 npx supabase login                       # 브라우저 인증 (사용자 직접)
 npx supabase link --project-ref <ref>    # ref: Project Settings → General → Project ID. DB 비밀번호 입력
-npx supabase db push --dry-run           # 적용될 마이그레이션 확인
-npm run db:push                          # 적용
+npx supabase db push --remote --dry-run  # 적용될 마이그레이션 확인
+npm run db:push                          # 적용 (supabase db push --remote)
 ```
+
+Supabase CLI 3은 프로젝트를 연결해도 기본 대상이 로컬 스택(`127.0.0.1:54322`)이므로 원격에 적용할 때는 `--remote`가 필요합니다. 빠뜨리면 "failed to connect to postgres ... 54322" 오류가 납니다.
 
 마이그레이션은 PR이 병합된 뒤에만 실제 프로젝트에 적용합니다.
 
