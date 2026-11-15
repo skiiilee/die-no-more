@@ -36,7 +36,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
       identity={context.identity}
       plantName={context.plantName}
       reminders={context.reminders}
-      backHref={context.identity.kind === "species" ? "/plants/new" : "/plants/new/manual"}
+      backHref={context.identity.kind === "species" ? `/plants/new/species/${context.identity.speciesId}` : "/plants/new/manual"}
     />
   );
 }

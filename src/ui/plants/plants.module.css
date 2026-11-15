@@ -227,3 +227,78 @@
     gap: var(--space-4);
   }
 }
+
+/* S03 / S04-A search box: input and button side by side. */
+.searchRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.searchRow > .field {
+  flex: 1 1 220px;
+}
+
+/* S04-A candidate row: photo, names, [보기]. */
+.candidate {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.candidateNames {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.scientificMain {
+  font-weight: 600;
+  font-style: italic;
+}
+
+.scientificSub {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.thumb,
+.photo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  object-fit: cover;
+}
+
+.thumb {
+  width: 64px;
+  height: 64px;
+}
+
+.photo {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 360px;
+}
+
+.noPhoto {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* dt/dd pairs wrapped for keys; the grid lays out the pair itself. */
+.factRow {
+  display: contents;
+}
