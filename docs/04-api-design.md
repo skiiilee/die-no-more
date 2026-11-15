@@ -138,3 +138,20 @@ One run with the owner's keys from a local machine (about 30 calls). Keys were n
 3. Owner awareness: half of the common houseplants checked (including Monstera) get no Perenual care data on the free plan.
 4. **Korean text source (owner decision, 2026-11-13):** when provider data already has Korean (for example Trefle `common_names.ko`), use it; translate only when no provider gives Korean. This applies to display names and any other provider text (ADR-0004 D2).
 5. **Azure live check:** pending. The owner has not created the Azure account yet; translation is connected last (ADR-0004 D4).
+
+## Name search implementation (2026-11-15)
+
+Implemented in `src/service/adapters/` (Perenual, Trefle, translator stub) and `src/service/species-search.ts` / `species-preview.ts`. S04-A and S04-B are server-rendered pages (`/plants/new/search?q=`, `/plants/new/species/{id}`) instead of the `/api/species/*` endpoints proposed above, because no client other than these screens needs them.
+
+- **Search order (04-data-sources):** plant DB (`search_species`, pg_trgm partial match) → Perenual `species-list` and Trefle `plants/search` in parallel with the query as typed → Korean query with no result: English retry through the translator, which answers "unavailable" until Azure is connected (ADR-0004 D3/D4) → manual entry.
+- **Plant DB:** every provider result is stored by scientific-name key (D10). Each species is asked for its Korean name (Trefle) and care data (Perenual) once, when S04-B first opens; the answer, including "none", is kept on the row (`korean_name_checked_at`, `care_status`). Provider failures leave the row unchecked so the next visit tries again.
+- **Perenual free range:** IDs above 3000 are marked `outside_free_range` without a details call. A 429 "Please Upgrade Plan" body is read the same way and never retried.
+- **Daily caps:** one `api_usage_logs` row per HTTP attempt (a retried attempt is a `failure`). Before each call the KST-day count is compared with `PERENUAL_DAILY_LIMIT` / `TREFLE_DAILY_LIMIT`; a Perenual quota answer (`quota_exceeded`) stops Perenual for the rest of the day. If usage cannot be read, the provider is not called.
+- **Time budget (D7):** one 25 s deadline per request, 10 s per attempt (less when the deadline is near), one retry on timeout/network/5xx only with ≥ 12 s left.
+
+### Live check (2026-11-15)
+One run of the adapters with the owner's keys (5 calls). Keys were never printed or committed.
+- Perenual `species-list?q=ficus`: 19 results parsed. **Photo URLs are pre-signed S3 links that expire after 24 hours** (`X-Amz-Expires=86400`). They are shown on the results page that fetched them but never stored; only non-expiring links (Trefle's `bs.plantnet.org` images) are kept in `plant_species.image_url`. A species found only through Perenual therefore shows '사진 없음' on S04-B and in later plant DB results.
+- Perenual details 2961 (*Ficus elastica*): `watering: Average`, benchmark parsed as 7–10 days, sunlight `full sun`, `part sun/part shade`, `care_level: Medium`.
+- Perenual details 5257 (*Monstera deliciosa*): not requested (outside the free range), as designed.
+- Trefle `plants/search?q=monstera`: 20 results; `Monstera deliciosa` → Korean name "몬스테라".
