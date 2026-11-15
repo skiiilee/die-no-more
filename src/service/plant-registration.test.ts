@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cleanMultilineText,
   cleanText,
   identityQuery,
   parseIdentity,
@@ -11,6 +12,25 @@ import { potDisplayName, plantName, UNKNOWN_SPECIES_LABEL } from "@/types/plant"
 const NONE = { water: false, fertilizer: false };
 const BOTH = { water: true, fertilizer: true };
 const SPECIES_ID = "10000000-0000-0000-0000-000000000001";
+
+describe("cleanMultilineText", () => {
+  it("keeps the line breaks typed in a memo", () => {
+    expect(cleanMultilineText("창가에서 관리\n잎 뒷면에 반점 확인")).toBe("창가에서 관리\n잎 뒷면에 반점 확인");
+  });
+
+  it("normalizes Windows line endings and keeps blank lines between paragraphs", () => {
+    expect(cleanMultilineText("첫 줄\r\n\r\n셋째 줄")).toBe("첫 줄\n\n셋째 줄");
+  });
+
+  it("drops trailing spaces and blank lines at the start and end", () => {
+    expect(cleanMultilineText("\n\n  들여쓴 줄   \n둘째 줄 \n\n")).toBe("  들여쓴 줄\n둘째 줄");
+  });
+
+  it("turns whitespace-only text into null", () => {
+    expect(cleanMultilineText(" \n\t\r\n ")).toBeNull();
+    expect(cleanMultilineText(undefined)).toBeNull();
+  });
+});
 
 describe("cleanText", () => {
   it("trims, collapses whitespace and turns empty into null", () => {
@@ -140,6 +160,26 @@ describe("parseRegistration", () => {
         potMaterial: "terracotta",
         memo: "선물 받음",
       },
+    });
+  });
+
+  it("stores a multi-line memo with its line breaks (PR #13 review, item 4)", () => {
+    const result = parseRegistration({ ...minimal, memo: "창가에서 관리\r\n잎 뒷면에 반점 확인" }, NONE);
+    expect(result.ok && result.value.memo).toBe("창가에서 관리\n잎 뒷면에 반점 확인");
+  });
+
+  it("stores no memo when it holds only whitespace and line breaks", () => {
+    const result = parseRegistration({ ...minimal, memo: "  \n \n" }, NONE);
+    expect(result.ok && result.value.memo).toBeNull();
+  });
+
+  it("counts line breaks in the memo length limit", () => {
+    const atLimit = "가\n".repeat(250).trimEnd();
+    expect(atLimit.length).toBe(499);
+    expect(parseRegistration({ ...minimal, memo: atLimit }, NONE).ok).toBe(true);
+    expect(parseRegistration({ ...minimal, memo: `${atLimit}\n가` }, NONE)).toEqual({
+      ok: false,
+      errors: { memo: expect.any(String) },
     });
   });
 

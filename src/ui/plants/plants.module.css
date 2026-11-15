@@ -204,6 +204,12 @@
   margin: 0;
 }
 
+/* Keep the line breaks typed in the memo. */
+.memo {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 /* PC: two columns, as in wireframe pages 17 and 19. */
 @media (min-width: 960px) {
   .columns {

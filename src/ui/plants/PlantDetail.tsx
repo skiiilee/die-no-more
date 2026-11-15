@@ -51,7 +51,7 @@ export function PlantDetail({ pot }: { pot: PotView }) {
             {pot.memo ? (
               <>
                 <dt>메모</dt>
-                <dd>{pot.memo}</dd>
+                <dd className={styles.memo}>{pot.memo}</dd>
               </>
             ) : null}
           </dl>

@@ -17,7 +17,7 @@ export type RawInput = Record<string, string | null | undefined>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Trims and collapses whitespace; empty becomes null. */
+/** One-line text: trims and collapses all whitespace; empty becomes null. */
 export function cleanText(value: string | null | undefined): string | null {
   const cleaned = (value ?? "").replace(/\s+/g, " ").trim();
   return cleaned === "" ? null : cleaned;
@@ -74,12 +74,24 @@ function pick<T extends string>(options: readonly Option<T>[], value: string | n
   return options.find((option) => option.code === value)?.code ?? null;
 }
 
+/**
+ * Multi-line text (memo): keeps line breaks the user typed. Line endings
+ * become "\n", trailing spaces on each line and blank lines at the start and
+ * end are dropped. Whitespace only becomes null.
+ */
+export function cleanMultilineText(value: string | null | undefined): string | null {
+  const lines = (value ?? "").replace(/\r\n?/g, "\n").split("\n").map((line) => line.trimEnd());
+  const cleaned = lines.join("\n").replace(/^\n+|\n+$/g, "");
+  return cleaned.trim() === "" ? null : cleaned;
+}
+
 function limited(
   value: string | null | undefined,
   max: number,
   label: string,
+  clean: (value: string | null | undefined) => string | null = cleanText,
 ): { ok: true; text: string | null } | { ok: false; message: string } {
-  const text = cleanText(value);
+  const text = clean(value);
   if (text && text.length > max) return { ok: false, message: `${label}은(는) ${max}자 이내로 입력해 주세요.` };
   return { ok: true, text };
 }
@@ -103,7 +115,7 @@ export function parseRegistration(
   if (!nickname.ok) errors.nickname = nickname.message;
   const location = limited(input.location, TEXT_LIMITS.location, "관리 장소");
   if (!location.ok) errors.location = location.message;
-  const memo = limited(input.memo, TEXT_LIMITS.memo, "메모");
+  const memo = limited(input.memo, TEXT_LIMITS.memo, "메모", cleanMultilineText);
   if (!memo.ok) errors.memo = memo.message;
 
   const environment = pick(ENVIRONMENTS, input.environment);
