@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { Suspense } from "react";
+import { GuardedLink } from "./GuardedLink";
 import { MainNav, NavList } from "./MainNav";
 import styles from "./AppShell.module.css";
 
@@ -11,12 +11,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         본문으로 건너뛰기
       </a>
       <header className={styles.header}>
-        <Link href="/today" className={styles.brand}>
+        <GuardedLink href="/today" className={styles.brand}>
           Die No More
-        </Link>
-        <Link href="/more" className={styles.headerLink}>
+        </GuardedLink>
+        <GuardedLink href="/more" className={styles.headerLink}>
           설정 / 계정
-        </Link>
+        </GuardedLink>
       </header>
       <Suspense fallback={<NavList />}>
         <MainNav />

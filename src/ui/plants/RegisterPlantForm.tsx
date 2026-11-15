@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useState } from "react";
 import { registerPotAction } from "@/runtime/plant-actions";
+import { GuardedLink } from "@/ui/shell/GuardedLink";
+import { useUnsavedChanges } from "@/ui/shell/unsaved-changes";
 import {
   ENVIRONMENTS,
   LAST_REPOTTED_RANGES,
@@ -38,22 +39,14 @@ type Props = {
 export function RegisterPlantForm({ identity, plantName, reminders, backHref }: Props) {
   const [state, formAction, pending] = useActionState(registerPotAction, INITIAL);
   const [dirty, setDirty] = useState(false);
-  const submitted = useRef(false);
+  // The answer that was on screen when [식물 추가하기] was pressed. While it is
+  // still the current answer, the save is running or redirecting to S06, so
+  // leaving is expected. A new answer (invalid, save_failed) re-arms the warning.
+  const [submittedAt, setSubmittedAt] = useState<RegisterFormState | null>(null);
+  const saving = submittedAt === state;
 
-  // Warn before leaving with unsaved input (02-wireframes §1).
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      if (submitted.current) return;
-      event.preventDefault();
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-
-  useEffect(() => {
-    if (state.status !== "idle") submitted.current = false;
-  }, [state]);
+  // Warn before unsaved input is lost (02-wireframes §1).
+  useUnsavedChanges(dirty && !saving);
 
   const { errors, values } = state;
   const showReminders = reminders.water || reminders.fertilizer;
@@ -66,9 +59,9 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
         <h1 id="register-title" className={styles.title}>
           내 화분 등록
         </h1>
-        <Link href={backHref} className={styles.back}>
+        <GuardedLink href={backHref} className={styles.back}>
           뒤로
-        </Link>
+        </GuardedLink>
       </div>
 
       {state.status === "save_failed" ? (
@@ -78,7 +71,7 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
       ) : null}
       {errors.identity ? (
         <p role="alert" className={styles.error}>
-          {errors.identity} <Link href="/plants/new">식물 추가로 돌아가기</Link>
+          {errors.identity} <GuardedLink href="/plants/new">식물 추가로 돌아가기</GuardedLink>
         </p>
       ) : null}
       {state.status === "invalid" && !errors.identity ? (
@@ -92,9 +85,7 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
         action={formAction}
         className={styles.columns}
         onChange={() => setDirty(true)}
-        onSubmit={() => {
-          submitted.current = true;
-        }}
+        onSubmit={() => setSubmittedAt(state)}
         noValidate
       >
         <IdentityFields identity={identity} />

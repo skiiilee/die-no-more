@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MAIN_TABS, findActiveTab } from "@/types/navigation";
+import { GuardedLink } from "./GuardedLink";
 import styles from "./AppShell.module.css";
 
 /**
@@ -27,9 +27,9 @@ export function NavList({ activeHref }: { activeHref?: string }) {
           const isActive = activeHref === tab.href;
           return (
             <li key={tab.href}>
-              <Link href={tab.href} className={styles.navLink} aria-current={isActive ? "page" : undefined}>
+              <GuardedLink href={tab.href} className={styles.navLink} aria-current={isActive ? "page" : undefined}>
                 {tab.label}
-              </Link>
+              </GuardedLink>
             </li>
           );
         })}
