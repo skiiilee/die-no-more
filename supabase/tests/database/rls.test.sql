@@ -640,6 +640,77 @@ select lives_ok(
   'the Perenual description is stored in English as a care field'
 );
 
+-- ---------------------------------------------------------------------------
+-- Provider call reservation (PR #15 review, items 1 and 4)
+-- ---------------------------------------------------------------------------
+-- Role here is user B, who has no usage rows yet.
+select ok(
+  (select reservation_id is not null and blocked is null
+     from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 2)),
+  'a call is reserved while the cap has room'
+);
+
+select is(
+  (select status from public.api_usage_logs where provider = 'perenual' order by called_at desc limit 1),
+  'reserved',
+  'the reservation is a counted usage row'
+);
+
+select ok(
+  (select reservation_id is not null from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 2)),
+  'the second call of a cap of 2 is reserved'
+);
+
+select is(
+  (select blocked from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 2)),
+  'limit',
+  'the third call is refused: retries and repeated requests count against the cap'
+);
+
+select is(
+  (select blocked from public.reserve_provider_call('perenual', 'search', now() + interval '1 minute', 2)),
+  null,
+  'calls before the day boundary do not count (KST day passed in by the app)'
+);
+
+update public.api_usage_logs set status = 'quota_exceeded'
+ where id = (select id from public.api_usage_logs where provider = 'perenual' order by called_at limit 1);
+select is(
+  (select blocked from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 90)),
+  'quota',
+  'after the provider reported its quota used up, no call is reserved that day'
+);
+
+select lives_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status, retry_at)
+     values ('trefle', 'search', 'failure', now() + interval '30 seconds') $$,
+  'a Trefle 429 records when it may be asked again'
+);
+
+select is(
+  (select blocked || ':' || (retry_at > now())::text
+     from public.reserve_provider_call('trefle', 'search', now() - interval '1 hour', 300)),
+  'cooldown:true',
+  'Trefle is skipped until its Retry-After time, and the time is returned'
+);
+
+update public.api_usage_logs set retry_at = now() - interval '1 second' where provider = 'trefle';
+select ok(
+  (select reservation_id is not null from public.reserve_provider_call('trefle', 'search', now() - interval '1 hour', 300)),
+  'Trefle is asked again once the Retry-After time has passed'
+);
+
+select ok(
+  (select reservation_id is not null from public.reserve_provider_call('plantnet', 'identify', now() - interval '1 hour', 1)),
+  'a cooldown or cap of one provider does not block another'
+);
+
+select throws_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status) values ('trefle', 'search', 'pending') $$,
+  '23514', null,
+  'usage status is one of the known values'
+);
+
 reset role;
 set local role anon;
 select set_config('request.jwt.claims', '{"role": "anon"}', true);
@@ -647,6 +718,11 @@ select throws_ok(
   $$ select * from public.search_species('ficus') $$,
   '42501', null,
   'anon cannot search the plant DB'
+);
+select throws_ok(
+  $$ select * from public.reserve_provider_call('trefle', 'search', now(), 300) $$,
+  '42501', null,
+  'anon cannot reserve provider calls'
 );
 
 select * from finish();
