@@ -2,7 +2,11 @@ import "server-only";
 import type { PlantRegistration, PotView, SpeciesSummary } from "@/types/plant";
 import type { SupabaseServerClient } from "./supabase-client";
 
-/** Pot storage. Runs as the signed-in user; RLS limits every query to own rows. */
+/**
+ * Pot storage. Runs as the signed-in user; RLS limits every query to own rows.
+ * Lookups return null only when the row does not exist (or RLS hides it); a
+ * failed query throws, so a database outage is never shown as "not found".
+ */
 export type PlantStore = {
   /** Inserts a pot owned by the signed-in user and returns its id. */
   insertPot(registration: PlantRegistration): Promise<{ ok: true; id: string } | { ok: false }>;
@@ -10,6 +14,14 @@ export type PlantStore = {
   listActivePots(): Promise<PotView[]>;
   getSpecies(id: string): Promise<SpeciesSummary | null>;
 };
+
+/** Thrown when a query fails. Carries no database detail to the screen. */
+export class PlantStoreError extends Error {
+  constructor(operation: string, options?: { cause?: unknown }) {
+    super(`Plant store query failed: ${operation}`, options);
+    this.name = "PlantStoreError";
+  }
+}
 
 const POT_COLUMNS = `
   id, nickname, user_entered_name, environment, location, memo,
@@ -94,7 +106,8 @@ export function supabasePlantStore(client: SupabaseServerClient): PlantStore {
     },
     async getPot(id) {
       const { data, error } = await client.from("user_plants").select(POT_COLUMNS).eq("id", id).maybeSingle();
-      if (error || !data) return null;
+      if (error) throw new PlantStoreError("getPot", { cause: error });
+      if (!data) return null;
       return toPot(data as unknown as PotRow);
     },
     async listActivePots() {
@@ -103,7 +116,7 @@ export function supabasePlantStore(client: SupabaseServerClient): PlantStore {
         .select(POT_COLUMNS)
         .eq("status", "active")
         .order("created_at", { ascending: false });
-      if (error || !data) throw new Error("Could not load pots");
+      if (error || !data) throw new PlantStoreError("listActivePots", { cause: error });
       return (data as unknown as PotRow[]).map(toPot);
     },
     async getSpecies(id) {
@@ -112,7 +125,8 @@ export function supabasePlantStore(client: SupabaseServerClient): PlantStore {
         .select("id, korean_name, scientific_name")
         .eq("id", id)
         .maybeSingle();
-      if (error || !data) return null;
+      if (error) throw new PlantStoreError("getSpecies", { cause: error });
+      if (!data) return null;
       return toSpecies(data as SpeciesRow);
     },
   };

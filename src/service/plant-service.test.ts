@@ -9,12 +9,18 @@ const SPECIES: SpeciesSummary = {
   scientificName: "Monstera deliciosa",
 };
 
-function fakeStore(options: { species?: SpeciesSummary | null; insert?: "ok" | "fail" } = {}) {
+function fakeStore(
+  options: { species?: SpeciesSummary | null | "error"; insert?: "ok" | "fail" | "throw" } = {},
+) {
   const inserted: PlantRegistration[] = [];
   return {
     inserted,
-    getSpecies: vi.fn(async (id: string) => (options.species && options.species.id === id ? options.species : null)),
+    getSpecies: vi.fn(async (id: string) => {
+      if (options.species === "error") throw new Error("lookup failed");
+      return options.species && options.species.id === id ? options.species : null;
+    }),
     insertPot: vi.fn(async (registration: PlantRegistration) => {
+      if (options.insert === "throw") throw new Error("network down");
       if (options.insert === "fail") return { ok: false as const };
       inserted.push(registration);
       return { ok: true as const, id: "20000000-0000-0000-0000-00000000000a" };
@@ -56,6 +62,12 @@ describe("loadRegistrationContext", () => {
     );
     expect(context).toMatchObject({ ok: false });
   });
+
+  it("lets a failed species lookup surface as an error, not as a missing species", async () => {
+    await expect(
+      loadRegistrationContext(fakeStore({ species: "error" }), { mode: "species", species: SPECIES.id }, false),
+    ).rejects.toThrow();
+  });
 });
 
 describe("registerPot", () => {
@@ -95,6 +107,18 @@ describe("registerPot", () => {
       ok: false,
       state: { status: "save_failed", errors: {}, values: { nickname: "거실", memo: "메모", ...choices } },
     });
+  });
+
+  it("keeps the input and offers a retry when the species lookup fails", async () => {
+    const store = fakeStore({ species: "error" });
+    const result = await registerPot(store, { mode: "species", species: SPECIES.id, ...choices }, false);
+    expect(result).toEqual({ ok: false, state: { status: "save_failed", errors: {}, values: choices } });
+    expect(store.insertPot).not.toHaveBeenCalled();
+  });
+
+  it("keeps the input when the save throws", async () => {
+    const result = await registerPot(fakeStore({ insert: "throw" }), form, false);
+    expect(result).toMatchObject({ ok: false, state: { status: "save_failed", values: { nickname: "거실" } } });
   });
 
   it("refuses to save when the chosen species no longer exists", async () => {

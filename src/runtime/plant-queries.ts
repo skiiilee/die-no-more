@@ -14,11 +14,15 @@ export async function getRegistrationContext(input: RawInput): Promise<Registrat
   return loadRegistrationContext(store, input, FEATURES.CARE_REMINDERS);
 }
 
-/** S06: one own pot, or null when it does not exist or belongs to someone else (RLS). */
+/**
+ * S06: one own pot, or null when it does not exist or belongs to someone else
+ * (RLS). A failed query throws and the plants error screen offers a retry.
+ */
 export async function getPot(id: string): Promise<PotView | null> {
   if (!UUID.test(id)) return null;
   const store = await requestPlantStore();
-  return store ? store.getPot(id) : null;
+  if (!store) throw new Error("Supabase is not configured");
+  return store.getPot(id);
 }
 
 /** S11: active pots, newest first. */

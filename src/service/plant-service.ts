@@ -24,6 +24,8 @@ export type RegistrationContext =
 /**
  * Checks the identity carried into S05. A species id must exist in the plant
  * DB; manual and unknown entries have no API care data, so no reminders.
+ * A failed species lookup throws (the screen offers a retry), unlike a
+ * species that is not in the DB.
  */
 export async function loadRegistrationContext(
   store: Pick<PlantStore, "getSpecies">,
@@ -89,7 +91,14 @@ export async function registerPot(
   remindersEnabled: boolean,
 ): Promise<{ ok: true; id: string } | { ok: false; state: RegisterFormState }> {
   const values = echo(input);
-  const context = await loadRegistrationContext(store, input, remindersEnabled);
+  const saveFailed = { ok: false as const, state: { status: "save_failed" as const, errors: {}, values } };
+  let context: RegistrationContext;
+  try {
+    context = await loadRegistrationContext(store, input, remindersEnabled);
+  } catch {
+    // The species lookup failed (not "species missing"): keep the input, offer a retry.
+    return saveFailed;
+  }
   if (!context.ok) {
     return { ok: false, state: { status: "invalid", errors: { identity: context.message }, values } };
   }
@@ -97,7 +106,12 @@ export async function registerPot(
   const parsed = parseRegistration(input, context.reminders);
   if (!parsed.ok) return { ok: false, state: { status: "invalid", errors: parsed.errors, values } };
 
-  const saved = await store.insertPot(parsed.value);
-  if (!saved.ok) return { ok: false, state: { status: "save_failed", errors: {}, values } };
+  let saved: Awaited<ReturnType<PlantStore["insertPot"]>>;
+  try {
+    saved = await store.insertPot(parsed.value);
+  } catch {
+    return saveFailed;
+  }
+  if (!saved.ok) return saveFailed;
   return { ok: true, id: saved.id };
 }
