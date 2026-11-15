@@ -92,6 +92,7 @@ export function toCare(rows: { field: string; value: unknown }[]): PerenualCare 
         : null,
     sunlight: Array.isArray(light) ? light.filter((item): item is string => typeof item === "string") : [],
     careLevel: typeof value("care_level") === "string" ? (value("care_level") as string) : null,
+    description: typeof value("description") === "string" ? (value("description") as string) : null,
   };
 }
 
@@ -102,6 +103,7 @@ export function careRows(speciesId: string, care: PerenualCare, fetchedAt: strin
   if (care.wateringBenchmark) rows.push({ field: "watering_benchmark", value: { ...care.wateringBenchmark, unit: "days" } });
   if (care.sunlight.length > 0) rows.push({ field: "light", value: care.sunlight });
   if (care.careLevel) rows.push({ field: "care_level", value: care.careLevel });
+  if (care.description) rows.push({ field: "description", value: care.description });
   return rows.map((row) => ({ species_id: speciesId, ...row, source: "perenual", fetched_at: fetchedAt }));
 }
 

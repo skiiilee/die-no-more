@@ -4,7 +4,9 @@
 --    common name and scientific name with pg_trgm indexes (ADR-0003 D10).
 -- 2. plant_species keeps what S04 shows and what was already asked of each
 --    provider, so the same species never costs a second provider call.
--- 3. species_care gains 'care_level' (Perenual care_level, S04-B 관리 난이도).
+-- 3. species_care gains 'care_level' (Perenual care_level, S04-B 관리 난이도) and
+--    'description' (Perenual description in English, S04-B 짧은 식물 설명;
+--    translated later per ADR-0004, the original is kept).
 
 create extension if not exists pg_trgm with schema extensions;
 
@@ -61,6 +63,6 @@ grant execute on function public.search_species(text, integer) to authenticated;
 
 alter table public.species_care drop constraint species_care_field_check;
 alter table public.species_care add constraint species_care_field_check check (field in (
-  'light', 'watering', 'watering_benchmark', 'fertilizer_interval', 'care_level',
+  'light', 'watering', 'watering_benchmark', 'fertilizer_interval', 'care_level', 'description',
   'soil', 'temperature', 'toxicity', 'pests', 'notes'
 ));

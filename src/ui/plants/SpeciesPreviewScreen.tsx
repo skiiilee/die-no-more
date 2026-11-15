@@ -11,8 +11,8 @@ function FactList({ facts }: { facts: CareFacts | null }) {
     ["빛 환경", facts?.light ?? null],
     ["물 주기", facts?.watering ?? null],
     ["흙 확인 간격 참고", facts?.wateringInterval ?? null],
-    // English provider text is not shown until translation is connected (ADR-0004 D3/D4).
-    ["짧은 식물 설명", null],
+    // English original until translation is connected (ADR-0004 D3, owner decision 2026-11-15).
+    ["짧은 식물 설명", facts?.description ?? null],
   ];
   return (
     <dl className={styles.facts}>

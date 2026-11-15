@@ -633,6 +633,13 @@ select lives_ok(
   'Perenual care level is stored as a care field'
 );
 
+select lives_ok(
+  $$ insert into public.species_care (species_id, field, value, source, fetched_at)
+     select id, 'description', '"A rubber plant."', 'perenual', now()
+     from public.plant_species where scientific_name_key = 'ficus elastica' $$,
+  'the Perenual description is stored in English as a care field'
+);
+
 reset role;
 set local role anon;
 select set_config('request.jwt.claims', '{"role": "anon"}', true);

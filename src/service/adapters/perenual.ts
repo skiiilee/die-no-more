@@ -90,6 +90,7 @@ export function parseDetails(body: unknown): PerenualCare {
     wateringBenchmark: parseBenchmark(row.watering_general_benchmark),
     sunlight,
     careLevel: text(row.care_level),
+    description: text(row.description),
   };
 }
 

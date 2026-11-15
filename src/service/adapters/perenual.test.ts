@@ -89,9 +89,16 @@ describe("parseDetails", () => {
         watering_general_benchmark: { value: '"7-10"', unit: "days" },
         sunlight: ["Part shade", "full shade", 3],
         care_level: "Medium",
+        description: " The Indian Rubberplant is a houseplant. ",
         xWateringQuality: "Upgrade Plans To Premium",
       }),
-    ).toEqual({ watering: "Average", wateringBenchmark: { min: 7, max: 10 }, sunlight: ["part shade", "full shade"], careLevel: "Medium" });
+    ).toEqual({
+      watering: "Average",
+      wateringBenchmark: { min: 7, max: 10 },
+      sunlight: ["part shade", "full shade"],
+      careLevel: "Medium",
+      description: "The Indian Rubberplant is a houseplant.",
+    });
   });
 });
 

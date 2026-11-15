@@ -7,6 +7,7 @@ const CARE = {
   wateringBenchmark: { min: 7, max: 10 },
   sunlight: ["part shade"],
   careLevel: "Medium",
+  description: "A rubber plant.",
 };
 
 describe("species_care rows for Perenual values", () => {
@@ -22,11 +23,18 @@ describe("species_care rows for Perenual values", () => {
       },
       { species_id: "s1", field: "light", value: ["part shade"], source: "perenual", fetched_at: "2026-11-15T00:00:00Z" },
       { species_id: "s1", field: "care_level", value: "Medium", source: "perenual", fetched_at: "2026-11-15T00:00:00Z" },
+      {
+        species_id: "s1",
+        field: "description",
+        value: "A rubber plant.",
+        source: "perenual",
+        fetched_at: "2026-11-15T00:00:00Z",
+      },
     ]);
   });
 
   it("stores nothing for values Perenual did not give", () => {
-    expect(careRows("s1", { watering: null, wateringBenchmark: null, sunlight: [], careLevel: null }, "t")).toEqual([]);
+    expect(careRows("s1", { watering: null, wateringBenchmark: null, sunlight: [], careLevel: null, description: null }, "t")).toEqual([]);
   });
 
   it("reads stored rows back into the same shape", () => {

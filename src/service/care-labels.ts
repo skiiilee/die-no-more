@@ -2,8 +2,10 @@ import type { CareFacts, PerenualCare } from "@/types/species";
 
 /**
  * Korean labels for Perenual's coded care values (S04-B). These are fixed
- * code → label tables, like the S05 choices, not translations: an unknown
- * code shows '정보 없음' instead of a guessed label (03 §3-6, no invented data).
+ * code → label tables, like the S05 choices, not translations. A value not in
+ * a table is shown as Perenual gave it, never guessed (owner decision
+ * 2026-11-15). The description stays in English until translation is
+ * connected (ADR-0004 D2/D3).
  */
 
 const CARE_LEVEL: Record<string, string> = {
@@ -33,7 +35,8 @@ const WATERING: Record<string, string> = {
 };
 
 function label(table: Record<string, string>, value: string | null): string | null {
-  return value ? (table[value.trim().toLowerCase()] ?? null) : null;
+  const trimmed = value?.trim();
+  return trimmed ? (table[trimmed.toLowerCase()] ?? trimmed) : null;
 }
 
 export function careFacts(care: PerenualCare): CareFacts {
@@ -48,5 +51,6 @@ export function careFacts(care: PerenualCare): CareFacts {
         ? `${benchmark.min}일`
         : `${benchmark.min}~${benchmark.max}일`
       : null,
+    description: care.description,
   };
 }

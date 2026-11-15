@@ -68,6 +68,8 @@ export type PerenualCare = {
   sunlight: string[];
   /** Low | Medium | High (or Moderate), as given. */
   careLevel: string | null;
+  /** Short description, English original (translated later, ADR-0004 D2). */
+  description: string | null;
 };
 
 /** S04-B: what the species screen shows. Labels are Korean, values only from providers. */
@@ -85,13 +87,18 @@ export type SpeciesPreview = {
   care: { status: "available"; facts: CareFacts } | { status: "none" } | { status: "pending" };
 };
 
-/** Korean labels for S04-B. Null means '정보 없음'. */
+/**
+ * S04-B values. Known codes get Korean labels; anything else is shown as the
+ * provider gave it (owner decision 2026-11-15). Null means '정보 없음'.
+ */
 export type CareFacts = {
   careLevel: string | null;
   light: string | null;
   watering: string | null;
   /** e.g. "7~10일" (soil check interval reference, D16). */
   wateringInterval: string | null;
+  /** English original until translation is connected (ADR-0004 D3). */
+  description: string | null;
 };
 
 /** A species merged from provider answers by scientific-name key (D10), ready to store. */

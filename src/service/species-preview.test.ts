@@ -10,6 +10,7 @@ const CARE: PerenualCare = {
   wateringBenchmark: { min: 7, max: 10 },
   sunlight: ["part shade", "full shade"],
   careLevel: "Medium",
+  description: "The Indian Rubberplant is a houseplant.",
 };
 
 function deps(overrides: Partial<PreviewDeps> = {}): PreviewDeps {
@@ -74,7 +75,13 @@ describe("loadSpeciesPreview", () => {
     expect(species.saveCare).toHaveBeenCalledWith(ID, { status: "available", perenualId: 2961, care: CARE });
     expect(preview?.care).toEqual({
       status: "available",
-      facts: { careLevel: "보통", light: "반그늘, 그늘", watering: "보통", wateringInterval: "7~10일" },
+      facts: {
+        careLevel: "보통",
+        light: "반그늘, 그늘",
+        watering: "보통",
+        wateringInterval: "7~10일",
+        description: "The Indian Rubberplant is a houseplant.",
+      },
     });
   });
 
@@ -117,9 +124,21 @@ describe("loadSpeciesPreview", () => {
 });
 
 describe("careFacts", () => {
-  it("labels only known codes; anything else is '정보 없음' (null)", () => {
+  it("shows a value missing from the label tables as Perenual gave it (owner decision 2026-11-15)", () => {
     expect(
-      careFacts({ watering: "Sometimes", wateringBenchmark: { min: 5, max: 5 }, sunlight: ["moonlight"], careLevel: "Extreme" }),
-    ).toEqual({ careLevel: null, light: null, watering: null, wateringInterval: "5일" });
+      careFacts({
+        watering: "Sometimes",
+        wateringBenchmark: { min: 5, max: 5 },
+        sunlight: ["part shade", "moonlight"],
+        careLevel: "Extreme",
+        description: null,
+      }),
+    ).toEqual({ careLevel: "Extreme", light: "반그늘, moonlight", watering: "Sometimes", wateringInterval: "5일", description: null });
+  });
+
+  it("is '정보 없음' (null) only when Perenual gave nothing", () => {
+    expect(
+      careFacts({ watering: null, wateringBenchmark: null, sunlight: [], careLevel: " ", description: null }),
+    ).toEqual({ careLevel: null, light: null, watering: null, wateringInterval: null, description: null });
   });
 });
