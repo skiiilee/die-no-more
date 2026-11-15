@@ -10,15 +10,21 @@ const SPECIES: SpeciesSummary = {
 };
 
 function fakeStore(
-  options: { species?: SpeciesSummary | null | "error"; insert?: "ok" | "fail" | "throw" } = {},
+  options: {
+    species?: SpeciesSummary | null | "error";
+    insert?: "ok" | "fail" | "throw";
+    reminderData?: { hasWateringBenchmark: boolean; hasFertilizerInterval: boolean };
+  } = {},
 ) {
   const inserted: PlantRegistration[] = [];
+  const reminderData = options.reminderData ?? { hasWateringBenchmark: false, hasFertilizerInterval: false };
   return {
     inserted,
     getSpecies: vi.fn(async (id: string) => {
       if (options.species === "error") throw new Error("lookup failed");
       return options.species && options.species.id === id ? options.species : null;
     }),
+    getReminderData: vi.fn(async () => reminderData),
     insertPot: vi.fn(async (registration: PlantRegistration) => {
       if (options.insert === "throw") throw new Error("network down");
       if (options.insert === "fail") return { ok: false as const };
@@ -52,6 +58,22 @@ describe("loadRegistrationContext", () => {
       false,
     );
     expect(context).toMatchObject({ ok: true, plantName: "Monstera deliciosa", species: SPECIES });
+  });
+
+  it("offers only the reminders the species' Perenual data supports (D16)", async () => {
+    const context = await loadRegistrationContext(
+      fakeStore({ species: SPECIES, reminderData: { hasWateringBenchmark: true, hasFertilizerInterval: false } }),
+      { mode: "species", species: SPECIES.id },
+      true,
+    );
+    expect(context).toMatchObject({ ok: true, reminders: { water: true, fertilizer: false } });
+  });
+
+  it("offers no reminders while the feature flag is off", async () => {
+    const store = fakeStore({ species: SPECIES, reminderData: { hasWateringBenchmark: true, hasFertilizerInterval: true } });
+    const context = await loadRegistrationContext(store, { mode: "species", species: SPECIES.id }, false);
+    expect(context).toMatchObject({ ok: true, reminders: { water: false, fertilizer: false } });
+    expect(store.getReminderData).not.toHaveBeenCalled();
   });
 
   it("refuses a species id that is not in the plant DB", async () => {
