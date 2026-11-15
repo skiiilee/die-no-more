@@ -33,3 +33,11 @@ test("without auth config, sign-in shows the setup message and stays on S01", as
   ).toBeVisible();
   await expect(page).toHaveURL(/\/login\?next=%2Fplants$/);
 });
+
+for (const path of ["/plants/new", "/plants/new/manual", "/plants/new/register?mode=unknown"]) {
+  test(`pot registration screens need a session: ${path}`, async ({ page }) => {
+    await page.goto(path);
+    await expect(page).toHaveURL(/\/login\?next=/);
+    await expect(page.getByLabel("비밀번호")).toBeVisible();
+  });
+}

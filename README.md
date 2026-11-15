@@ -15,7 +15,7 @@
 | 명령 | 내용 |
 |---|---|
 | `npm run dev` | 개발 서버 |
-| `npm run check` | 린트, 타입 검사, 계층 검사(ADR-0002), 문서 검사, 단위 테스트 |
+| `npm run check` | 린트, 타입 검사, 계층 검사(ADR-0002), 문서 검사, 단위 테스트(화면 컴포넌트 테스트는 파일 맨 위 `// @vitest-environment jsdom`으로 jsdom에서 실행) |
 | `npm run test:e2e` | Playwright E2E (빌드 후 3100 포트로 실행) |
 
 **Windows 주의:** 작업 폴더 경로의 드라이브 문자가 소문자(`c:\...`)로 열려 있으면 Vitest가 모듈을 두 번 불러 모든 테스트가 `Cannot read properties of undefined (reading 'config')`로 실패합니다. 터미널에서 `cd C:\Users\...`처럼 대문자 드라이브 경로로 이동한 뒤 실행하세요.

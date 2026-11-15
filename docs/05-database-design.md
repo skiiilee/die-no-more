@@ -34,7 +34,7 @@ PostgreSQL + Supabase; UUID primary keys and timestamptz event times. Date math 
 
 ## Implemented (2026-11-12)
 
-Migration: `supabase/migrations/20261111171114_initial_schema.sql`. RLS tests: `supabase/tests/database/rls.test.sql` (run in CI).
+Migrations: `supabase/migrations/20261111171114_initial_schema.sql`, `20261113090000_azure_translator_provider.sql` (`api_usage_logs.provider`: `google_translate` → `azure_translator`, ADR-0004), `20261113100000_user_plants_required_choices.sql` (S05 choices `environment`, `light_level`, `pot_material`, `initial_last_watered_range`, `initial_last_repotted_range` are NOT NULL). RLS tests: `supabase/tests/database/rls.test.sql` (run in CI).
 
 - Per-user tables: owner-only RLS for every operation, plus a composite FK `(plant_id, user_id) → user_plants(id, user_id)` so a row cannot point at another user's pot.
 - `anon` has no table access. Shared species tables are readable and cacheable (insert/update, no delete) by signed-in users, because the server writes search results with the owner's session. Kept as is for a single user; see `docs/09-deferred-items.md` DF-01.

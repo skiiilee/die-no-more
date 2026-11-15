@@ -10,7 +10,8 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
+    // Component tests opt in with a `// @vitest-environment jsdom` comment.
     environment: "node",
   },
 });
