@@ -48,6 +48,6 @@ Related: ADR-0003 D8, `docs/04-api-design.md`, `docs/stage2/03-functional-specif
 
 ## Consequences
 - stage2 문서의 "한국어 이름은 Google Cloud Translation" 규칙과 ADR-0003 D8의 "KST 날짜 기준 집계"는 이 ADR로 대체된다. 나머지 ADR-0003 결정은 그대로다.
-- DB: `api_usage_logs.provider` 허용 값의 `google_translate`를 `azure_translator`로 바꾸는 마이그레이션이 필요하다. 다음 구현 PR에서 추가한다(초기 마이그레이션은 이미 병합됨).
+- DB: `api_usage_logs.provider` 허용 값의 `google_translate`를 `azure_translator`로 바꾸는 마이그레이션이 필요하다. `supabase/migrations/20261113090000_azure_translator_provider.sql`로 추가했다(완료).
 - 번역 연결 전에는 Trefle에 한국어 이름이 없는 종이 학명으로 보이고, 건강 점검 설명이 영어로 보인다.
 - 사용자: Google 번역 키는 더 쓰지 않으므로 `.env.local`에서 지우고 Google Cloud 콘솔에서 키를 삭제하거나 사용 중지할 수 있다.

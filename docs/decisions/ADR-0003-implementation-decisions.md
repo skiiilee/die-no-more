@@ -1,6 +1,6 @@
 # ADR-0003: 구현 착수를 위한 미결정 사항 일괄 확정
 
-Status: Accepted (사용자가 Claude에게 결정 위임, 2026-11-12)
+Status: Accepted (사용자가 Claude에게 결정 위임, 2026-11-12). D8의 KST 집계 규칙은 Pl@ntNet에 대해 [ADR-0004](ADR-0004-translation-and-quota.md)로 대체됨(UTC 날짜 기준).
 Date: 2026-11-12
 Related: ADR-0001, ADR-0002, `docs/stage2/*`, `docs/08-functional-review.md` §6
 
