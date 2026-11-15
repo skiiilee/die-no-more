@@ -11,8 +11,13 @@ import type { SupabaseServerClient } from "./supabase-client";
 export type SpeciesStore = {
   /** Plant DB search (search_species, ADR-0003 D10). */
   searchLocal(query: string): Promise<SpeciesRecord[]>;
-  /** Stores provider results by scientific-name key and returns the rows in the same order. */
-  saveFound(found: FoundSpecies[]): Promise<SpeciesRecord[]>;
+  /**
+   * Stores provider results by scientific-name key and returns the stored rows
+   * in the same order. A result whose provider ID is already stored under
+   * another name is left out and counted in `dropped` (D10: never merged).
+   * Any other write failure throws.
+   */
+  saveFound(found: FoundSpecies[]): Promise<{ records: SpeciesRecord[]; dropped: number }>;
   getRecord(id: string): Promise<SpeciesRecord | null>;
   /** Perenual care values stored for the species, or null when none. */
   getCare(id: string): Promise<PerenualCare | null>;
@@ -107,6 +112,13 @@ export function careRows(speciesId: string, care: PerenualCare, fetchedAt: strin
   return rows.map((row) => ({ species_id: speciesId, ...row, source: "perenual", fetched_at: fetchedAt }));
 }
 
+/** Postgres unique violation: here, a provider ID already stored under another scientific name. */
+const UNIQUE_VIOLATION = "23505";
+
+function isUniqueViolation(error: { code?: string } | null): boolean {
+  return error?.code === UNIQUE_VIOLATION;
+}
+
 export function supabaseSpeciesStore(client: SupabaseServerClient): SpeciesStore {
   const byKeys = async (keys: string[]) => {
     const { data, error } = await client.from("plant_species").select(COLUMNS).in("scientific_name_key", keys);
@@ -122,30 +134,38 @@ export function supabaseSpeciesStore(client: SupabaseServerClient): SpeciesStore
     },
 
     async saveFound(found) {
-      if (found.length === 0) return [];
+      if (found.length === 0) return { records: [], dropped: 0 };
       const keys = found.map((item) => item.scientificNameKey);
-      const { error } = await client
-        .from("plant_species")
-        .upsert(found.map(insertRow), { onConflict: "scientific_name_key", ignoreDuplicates: true });
+      const upsert = (rows: ReturnType<typeof insertRow>[]) =>
+        client.from("plant_species").upsert(rows, { onConflict: "scientific_name_key", ignoreDuplicates: true });
+
+      const { error } = await upsert(found.map(insertRow));
+      if (error && !isUniqueViolation(error)) throw new PlantStoreError("saveFound", { cause: error });
       if (error) {
         // A provider ID already stored under another name: store the rest one by one.
         for (const item of found) {
-          await client.from("plant_species").upsert(insertRow(item), { onConflict: "scientific_name_key", ignoreDuplicates: true });
+          const { error: itemError } = await upsert([insertRow(item)]);
+          if (itemError && !isUniqueViolation(itemError)) throw new PlantStoreError("saveFound item", { cause: itemError });
         }
       }
+
       const rows = await byKeys(keys);
       for (const row of rows) {
         const item = found.find((candidate) => candidate.scientificNameKey === row.scientific_name_key);
         const update = item ? missingFields(row, item) : {};
         if (Object.keys(update).length === 0) continue;
         const { error: updateError } = await client.from("plant_species").update(update).eq("id", row.id);
+        // Filling a provider ID used by another row is skipped; other failures are real.
+        if (updateError && !isUniqueViolation(updateError)) throw new PlantStoreError("saveFound fill", { cause: updateError });
         if (!updateError) Object.assign(row, update);
       }
+
       const byKey = new Map(rows.map((row) => [row.scientific_name_key, row]));
-      return keys.flatMap((key) => {
+      const records = keys.flatMap((key) => {
         const row = byKey.get(key);
         return row ? [toRecord(row)] : [];
       });
+      return { records, dropped: keys.length - records.length };
     },
 
     async getRecord(id) {

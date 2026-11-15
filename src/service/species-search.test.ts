@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PlantStoreError } from "@/repo/plant-repo";
 import { notConnectedTranslator, type Translator } from "./adapters/translator";
 import { isKorean, mergeFound, scientificNameKey, searchSpecies, type SearchDeps } from "./species-search";
 import { fakePerenual, fakeSpeciesStore, fakeTrefle, providerSpecies, record } from "../../tests/fakes/species";
@@ -16,11 +17,10 @@ function deps(overrides: Partial<SearchDeps> = {}): SearchDeps {
 const SIGNED = "https://s3.example.test/p.jpg?X-Amz-Expires=86400&X-Amz-Signature=abc";
 const STABLE = "https://bs.plantnet.org/image/o/abc";
 
-const FOUND_P = { kind: "ok" as const, species: [providerSpecies("perenual", 2961, "Ficus elastica")], calls: 1 };
+const FOUND_P = { kind: "ok" as const, species: [providerSpecies("perenual", 2961, "Ficus elastica")] };
 const FOUND_T = {
   kind: "ok" as const,
   species: [providerSpecies("trefle", 7, "ficus  elastica"), providerSpecies("trefle", 8, "Ficus lyrata")],
-  calls: 1,
 };
 
 describe("scientificNameKey and merging (ADR-0003 D10)", () => {
@@ -59,31 +59,33 @@ describe("searchSpecies", () => {
   });
 
   it("answers from the plant DB first, without provider calls", async () => {
-    const d = deps({ species: fakeSpeciesStore({ local: [record({ koreanName: "고무나무" })] }) });
-    const outcome = await searchSpecies(d, "고무");
+    const perenual = fakePerenual();
+    const trefle = fakeTrefle();
+    const species = fakeSpeciesStore({ local: [record({ koreanName: "고무나무" })] });
+    const outcome = await searchSpecies(deps({ species, perenual, trefle }), "고무");
     expect(outcome).toMatchObject({
       kind: "results",
       from: "plant_db",
       candidates: [{ koreanName: "고무나무", scientificName: "Ficus elastica" }],
     });
-    expect(d.perenual?.adapter.search).not.toHaveBeenCalled();
-    expect(d.trefle?.adapter.search).not.toHaveBeenCalled();
+    expect(perenual.search).not.toHaveBeenCalled();
+    expect(trefle.search).not.toHaveBeenCalled();
   });
 
-  it("asks both providers with the query as typed and stores the merged results", async () => {
-    const d = deps({ perenual: fakePerenual(FOUND_P), trefle: fakeTrefle(FOUND_T) });
-    const outcome = await searchSpecies(d, " ficus ");
-    expect(d.perenual?.adapter.search).toHaveBeenCalledWith("ficus");
-    expect(d.species.saveFound).toHaveBeenCalledWith([
+  it("asks both providers with the query as typed and stores the merged results in order", async () => {
+    const species = fakeSpeciesStore();
+    const perenual = fakePerenual(FOUND_P);
+    const outcome = await searchSpecies(deps({ species, perenual, trefle: fakeTrefle(FOUND_T) }), " ficus ");
+    expect(perenual.search).toHaveBeenCalledWith("ficus");
+    expect(species.saveFound).toHaveBeenCalledWith([
       expect.objectContaining({ scientificNameKey: "ficus elastica" }),
       expect.objectContaining({ scientificNameKey: "ficus lyrata" }),
     ]);
-    expect(outcome).toMatchObject({ kind: "results", from: "providers", partial: false });
+    expect(outcome).toMatchObject({ kind: "results", from: "providers", partial: false, dropped: false });
     expect(outcome.kind === "results" && outcome.candidates.map((c) => c.scientificName)).toEqual([
       "Ficus elastica",
       "Ficus lyrata",
     ]);
-    expect(d.perenual?.meter.record).toHaveBeenCalledWith("search", FOUND_P);
   });
 
   it("shows an expiring Perenual photo on this page without storing it (live check 2026-11-15)", async () => {
@@ -91,37 +93,57 @@ describe("searchSpecies", () => {
     const perenual = fakePerenual({
       kind: "ok",
       species: [{ ...providerSpecies("perenual", 2961, "Ficus elastica"), imageUrl: SIGNED }],
-      calls: 1,
     });
     const outcome = await searchSpecies(deps({ species, perenual }), "ficus");
     expect(outcome.kind === "results" && outcome.candidates[0].imageUrl).toBe(SIGNED);
     const stored = await species.saveFound.mock.results[0].value;
-    expect(stored[0].imageUrl).toBeNull();
+    expect(stored.records[0].imageUrl).toBeNull();
   });
 
   it("shows what one provider found and marks the list partial when the other failed", async () => {
-    const d = deps({ perenual: fakePerenual({ kind: "unavailable", calls: 2 }), trefle: fakeTrefle(FOUND_T) });
+    const d = deps({ perenual: fakePerenual({ kind: "unavailable" }), trefle: fakeTrefle(FOUND_T) });
     expect(await searchSpecies(d, "ficus")).toMatchObject({ kind: "results", partial: true });
   });
 
-  it("skips a provider whose daily cap is reached", async () => {
-    const d = deps({ perenual: fakePerenual(FOUND_P, undefined, false), trefle: fakeTrefle(FOUND_T) });
-    await searchSpecies(d, "ficus");
-    expect(d.perenual?.adapter.search).not.toHaveBeenCalled();
+  it("keeps the stored results and says some were left out when a provider ID clashed (PR #15 review, item 3)", async () => {
+    const species = fakeSpeciesStore({ dropKeys: ["ficus lyrata"] });
+    const outcome = await searchSpecies(deps({ species, trefle: fakeTrefle(FOUND_T) }), "ficus");
+    expect(outcome).toMatchObject({ kind: "results", dropped: true, candidates: [{ scientificName: "ficus elastica" }] });
+  });
+
+  it("fails, instead of showing an empty list, when nothing found could be stored", async () => {
+    const species = fakeSpeciesStore({ dropKeys: ["ficus elastica", "ficus lyrata"] });
+    await expect(searchSpecies(deps({ species, trefle: fakeTrefle(FOUND_T) }), "ficus")).rejects.toBeInstanceOf(
+      PlantStoreError,
+    );
+  });
+
+  it("lets a storage failure surface as an error for the retry screen", async () => {
+    const species = fakeSpeciesStore();
+    species.saveFound.mockRejectedValue(new PlantStoreError("saveFound"));
+    await expect(searchSpecies(deps({ species, trefle: fakeTrefle(FOUND_T) }), "ficus")).rejects.toBeInstanceOf(
+      PlantStoreError,
+    );
   });
 
   it("shows the fixed quota message when every provider's limit is used up", async () => {
-    const d = deps({ perenual: fakePerenual(undefined, undefined, false), trefle: fakeTrefle(undefined, undefined, false) });
+    const d = deps({ perenual: fakePerenual({ kind: "quota" }), trefle: fakeTrefle({ kind: "quota" }) });
     expect(await searchSpecies(d, "ficus")).toEqual({ kind: "quota", query: "ficus" });
   });
 
   it("reports unavailable when no provider could be reached or none is configured", async () => {
     expect(await searchSpecies(deps({ perenual: null, trefle: null }), "ficus")).toMatchObject({ kind: "unavailable" });
-    const failing = deps({
-      perenual: fakePerenual({ kind: "quota", calls: 1 }),
-      trefle: fakeTrefle({ kind: "unavailable", calls: 1 }),
-    });
+    const failing = deps({ perenual: fakePerenual({ kind: "quota" }), trefle: fakeTrefle({ kind: "unavailable" }) });
     expect(await searchSpecies(failing, "ficus")).toMatchObject({ kind: "unavailable" });
+  });
+
+  it("keeps Perenual results while Trefle is backing off (PR #15 review, item 4)", async () => {
+    const d = deps({ perenual: fakePerenual(FOUND_P), trefle: fakeTrefle({ kind: "unavailable" }) });
+    expect(await searchSpecies(d, "ficus")).toMatchObject({
+      kind: "results",
+      partial: true,
+      candidates: [{ scientificName: "Ficus elastica" }],
+    });
   });
 
   it("reports an empty result and stores nothing", async () => {
@@ -132,18 +154,18 @@ describe("searchSpecies", () => {
 
   it("tries the English retry for a Korean query; while translation is not connected it goes to manual entry (ADR-0004 D3)", async () => {
     const translator: Translator = { koreanToEnglish: vi.fn(notConnectedTranslator.koreanToEnglish) };
-    const d = deps({ translator });
-    expect(await searchSpecies(d, "몬스테라")).toMatchObject({ kind: "empty", korean: true });
+    const perenual = fakePerenual();
+    expect(await searchSpecies(deps({ translator, perenual }), "몬스테라")).toMatchObject({ kind: "empty", korean: true });
     expect(translator.koreanToEnglish).toHaveBeenCalledWith("몬스테라");
-    expect(d.perenual?.adapter.search).toHaveBeenCalledTimes(1);
+    expect(perenual.search).toHaveBeenCalledTimes(1);
   });
 
   it("searches again with the English name once translation answers", async () => {
     const translator: Translator = { koreanToEnglish: vi.fn(async () => ({ kind: "ok" as const, text: "ficus" })) };
     const perenual = fakePerenual();
-    perenual.adapter.search.mockResolvedValueOnce({ kind: "ok", species: [], calls: 1 }).mockResolvedValueOnce(FOUND_P);
+    perenual.search.mockResolvedValueOnce({ kind: "ok", species: [] }).mockResolvedValueOnce(FOUND_P);
     const outcome = await searchSpecies(deps({ translator, perenual }), "고무나무");
-    expect(perenual.adapter.search).toHaveBeenLastCalledWith("ficus");
+    expect(perenual.search).toHaveBeenLastCalledWith("ficus");
     expect(outcome).toMatchObject({ kind: "results", query: "고무나무" });
   });
 });

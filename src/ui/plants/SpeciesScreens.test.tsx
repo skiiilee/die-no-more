@@ -17,6 +17,7 @@ describe("S04-A 검색 결과", () => {
           query: "ficus",
           from: "providers",
           partial: false,
+          dropped: false,
           candidates: [
             { id: ID, koreanName: "고무나무", scientificName: "Ficus elastica", imageUrl: "https://example.test/f.jpg" },
             { id: "x2", koreanName: null, scientificName: "Ficus lyrata", imageUrl: null },
@@ -30,6 +31,22 @@ describe("S04-A 검색 결과", () => {
     expect(screen.getByRole("link", { name: "고무나무 보기" }).getAttribute("href")).toBe(`/plants/new/species/${ID}?q=ficus`);
     expect(screen.getByRole("link", { name: "직접 입력하기" }).getAttribute("href")).toBe("/plants/new/manual");
     expect(screen.getByRole("link", { name: "다시 검색하기" }).getAttribute("href")).toBe("/plants/new");
+  });
+
+  it("says when some results could not be stored (PR #15 review, item 3)", () => {
+    render(
+      <SpeciesResults
+        outcome={{
+          kind: "results",
+          query: "ficus",
+          from: "providers",
+          partial: false,
+          dropped: true,
+          candidates: [{ id: ID, koreanName: null, scientificName: "Ficus elastica", imageUrl: null }],
+        }}
+      />,
+    );
+    expect(screen.getByText("일부 결과를 저장하지 못해 목록에서 뺐습니다.")).toBeTruthy();
   });
 
   it("uses the fixed quota wording from 03 §3", () => {

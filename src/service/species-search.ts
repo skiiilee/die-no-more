@@ -1,3 +1,4 @@
+import { PlantStoreError } from "@/repo/plant-repo";
 import type { SpeciesStore } from "@/repo/species-repo";
 import {
   isStorableImageUrl,
@@ -11,7 +12,6 @@ import type { PerenualAdapter } from "./adapters/perenual";
 import type { TrefleAdapter } from "./adapters/trefle";
 import type { Translator } from "./adapters/translator";
 import { cleanText } from "./plant-registration";
-import type { Meter } from "./provider-usage";
 
 /**
  * Name search (docs/stage2/04-data-sources.md "이름 검색 순서"):
@@ -19,17 +19,17 @@ import type { Meter } from "./provider-usage";
  * query is Korean and nothing was found, an English translation (not
  * connected yet, ADR-0004 D3/D4: skipped) → ④ manual entry.
  * Provider results are stored in the plant DB keyed by scientific name (D10).
+ * Daily caps and back-off are enforced per HTTP attempt inside the adapters'
+ * client (provider-usage.ts), so this file never counts calls itself.
  */
 
 export const MAX_QUERY_LENGTH = 60;
 const MAX_CANDIDATES = 20;
 
-export type Metered<T> = { adapter: T; meter: Meter };
-
 export type SearchDeps = {
   species: SpeciesStore;
-  perenual: Metered<PerenualAdapter> | null;
-  trefle: Metered<TrefleAdapter> | null;
+  perenual: PerenualAdapter | null;
+  trefle: TrefleAdapter | null;
   translator: Translator;
 };
 
@@ -86,13 +86,11 @@ export function toCandidate(record: SpeciesRecord): SpeciesCandidate {
 }
 
 async function ask(
-  provider: Metered<PerenualAdapter | TrefleAdapter> | null,
+  adapter: PerenualAdapter | TrefleAdapter | null,
   query: string,
 ): Promise<{ status: ProviderStatus; found: ProviderSpecies[] }> {
-  if (!provider) return { status: "unavailable", found: [] };
-  if (!(await provider.meter.canCall())) return { status: "quota", found: [] };
-  const answer = await provider.adapter.search(query);
-  await provider.meter.record("search", answer);
+  if (!adapter) return { status: "unavailable", found: [] };
+  const answer = await adapter.search(query);
   return answer.kind === "ok" ? { status: "ok", found: answer.species } : { status: answer.kind, found: [] };
 }
 
@@ -117,7 +115,7 @@ export async function searchSpecies(deps: SearchDeps, rawQuery: string | null | 
 
   const local = await deps.species.searchLocal(query);
   if (local.length > 0) {
-    return { kind: "results", query, from: "plant_db", candidates: local.map(toCandidate), partial: false };
+    return { kind: "results", query, from: "plant_db", candidates: local.map(toCandidate), partial: false, dropped: false };
   }
 
   let round = await askProviders(deps, query);
@@ -130,16 +128,19 @@ export async function searchSpecies(deps: SearchDeps, rawQuery: string | null | 
   if (merged.length === 0) return noResults(query, round.statuses);
 
   const saved = await deps.species.saveFound(merged);
+  // Found but nothing could be stored: a failure to retry, never an empty list (PR #15 review, item 3).
+  if (saved.records.length === 0) throw new PlantStoreError("saveFound: no result could be stored");
   // Expiring photos are not stored, but they are still valid for this page.
   const shownPhoto = new Map(merged.map((item) => [item.scientificNameKey, item.imageUrl]));
   return {
     kind: "results",
     query,
     from: "providers",
-    candidates: saved.map((record) => ({
+    candidates: saved.records.map((record) => ({
       ...toCandidate(record),
       imageUrl: record.imageUrl ?? shownPhoto.get(record.scientificNameKey) ?? null,
     })),
     partial: round.statuses.some((status) => status !== "ok"),
+    dropped: saved.dropped > 0,
   };
 }

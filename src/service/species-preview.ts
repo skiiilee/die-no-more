@@ -1,9 +1,9 @@
 import type { SpeciesStore } from "@/repo/species-repo";
 import type { CareStatus, SpeciesPreview, SpeciesRecord } from "@/types/species";
-import { FREE_RANGE_MAX_ID, type PerenualAdapter } from "./adapters/perenual";
+import type { PerenualAdapter } from "./adapters/perenual";
 import type { TrefleAdapter } from "./adapters/trefle";
 import { careFacts } from "./care-labels";
-import { scientificNameKey, type Metered } from "./species-search";
+import { scientificNameKey } from "./species-search";
 
 /**
  * S04-B 식물 정보 확인. Asks each provider at most once per species and keeps
@@ -12,31 +12,30 @@ import { scientificNameKey, type Metered } from "./species-search";
  *   not connected yet, so a species without one shows its scientific name.
  * - Perenual care values (D16). IDs above 3000 are outside the free range and
  *   are not requested; the screen offers S13 instead (approved 2026-11-12).
- * Provider failures leave the row unchecked so the next visit tries again.
+ * Only a well-formed answer is stored. Failures, caps, back-off and malformed
+ * bodies leave the row unchecked so the next visit tries again.
  */
 
 export type PreviewDeps = {
   species: SpeciesStore;
-  perenual: Metered<PerenualAdapter> | null;
-  trefle: Metered<TrefleAdapter> | null;
+  perenual: PerenualAdapter | null;
+  trefle: TrefleAdapter | null;
 };
 
 /** Finds a provider ID by exact scientific-name key (D10), never by a similar name. */
 async function findId(
-  provider: Metered<PerenualAdapter> | Metered<TrefleAdapter>,
+  adapter: PerenualAdapter | TrefleAdapter,
   record: SpeciesRecord,
 ): Promise<{ kind: "found"; id: number } | { kind: "none" } | { kind: "failed" }> {
-  if (!(await provider.meter.canCall())) return { kind: "failed" };
-  const answer = await provider.adapter.search(record.scientificName);
-  await provider.meter.record("search", answer);
+  const answer = await adapter.search(record.scientificName);
   if (answer.kind !== "ok") return { kind: "failed" };
   const match = answer.species.find((item) => scientificNameKey(item.scientificName) === record.scientificNameKey);
   return match ? { kind: "found", id: match.providerId } : { kind: "none" };
 }
 
 async function ensureKoreanName(deps: PreviewDeps, record: SpeciesRecord): Promise<string | null> {
-  if (record.koreanName || record.koreanNameCheckedAt || !deps.trefle) return record.koreanName;
   const trefle = deps.trefle;
+  if (record.koreanName || record.koreanNameCheckedAt || !trefle) return record.koreanName;
   let trefleId = record.trefleId;
   if (trefleId === null) {
     const found = await findId(trefle, record);
@@ -47,9 +46,7 @@ async function ensureKoreanName(deps: PreviewDeps, record: SpeciesRecord): Promi
     }
     trefleId = found.id;
   }
-  if (!(await trefle.meter.canCall())) return null;
-  const answer = await trefle.adapter.koreanName(trefleId);
-  await trefle.meter.record("korean_name", answer);
+  const answer = await trefle.koreanName(trefleId);
   if (answer.kind !== "ok") return null;
   await deps.species.saveKoreanName(record.id, { koreanName: answer.koreanName, trefleId });
   return answer.koreanName;
@@ -69,11 +66,7 @@ async function lookUpCare(deps: PreviewDeps, record: SpeciesRecord): Promise<Car
     }
     perenualId = found.id;
   }
-  // details() skips the call for IDs above the free range, so the gate is only for real calls.
-  const needsCall = perenualId <= FREE_RANGE_MAX_ID;
-  if (needsCall && !(await perenual.meter.canCall())) return null;
-  const answer = await perenual.adapter.details(perenualId);
-  await perenual.meter.record("details", answer);
+  const answer = await perenual.details(perenualId);
   if (answer.kind === "quota" || answer.kind === "unavailable") return null;
   const status: CareStatus = answer.kind === "ok" ? "available" : answer.kind;
   await deps.species.saveCare(record.id, {

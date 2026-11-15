@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { UsageStore } from "@/repo/usage-repo";
-import { kstDayStart, meter, usageStatuses } from "./provider-usage";
+import type { ReserveAnswer, UsageStore } from "@/repo/usage-repo";
+import { httpClient, providerClient } from "./adapters/http";
+import { perenual, perenualUsage } from "./adapters/perenual";
+import { trefle, trefleUsage } from "./adapters/trefle";
+import { kstDayStart, usageGate } from "./provider-usage";
 
 describe("kstDayStart (ADR-0004 D5: Perenual and Trefle count per KST day)", () => {
   it("starts the day at 00:00 KST, which is 15:00 UTC the day before", () => {
@@ -10,53 +13,141 @@ describe("kstDayStart (ADR-0004 D5: Perenual and Trefle count per KST day)", () 
   });
 });
 
-describe("usageStatuses", () => {
-  it("logs one row per attempt; a retried attempt counts as a failure", () => {
-    expect(usageStatuses({ kind: "ok", calls: 2 })).toEqual(["failure", "success"]);
-    expect(usageStatuses({ kind: "outside_free_range", calls: 1 })).toEqual(["success"]);
-    expect(usageStatuses({ kind: "quota", calls: 1 })).toEqual(["quota_exceeded"]);
-    expect(usageStatuses({ kind: "unavailable", calls: 2 })).toEqual(["failure", "failure"]);
-    expect(usageStatuses({ kind: "outside_free_range", calls: 0 })).toEqual([]);
+/**
+ * In-memory stand-in for reserve_provider_call: one reservation at a time
+ * (like the DB lock), a daily count and a Retry-After back-off.
+ */
+function memoryUsage(options: { used?: number; now?: () => number; failWrites?: boolean } = {}) {
+  let used = options.used ?? 0;
+  let retryAt: number | null = null;
+  let queue: Promise<unknown> = Promise.resolve();
+  const now = options.now ?? Date.now;
+  const statuses: string[] = [];
+  const store: UsageStore = {
+    reserve: vi.fn((_provider: string, _operation: string, _since: string, limit: number) => {
+      const run = queue.then(async (): Promise<ReserveAnswer> => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        if (options.failWrites) throw new Error("insert failed");
+        if (retryAt !== null && retryAt > now()) {
+          return { kind: "blocked", reason: "cooldown", retryAt: new Date(retryAt).toISOString() };
+        }
+        if (used >= limit) return { kind: "blocked", reason: "limit", retryAt: null };
+        used += 1;
+        return { kind: "reserved", id: `r${used}` };
+      });
+      queue = run.catch(() => undefined);
+      return run;
+    }),
+    settle: vi.fn(async (_id: string, status: string, at: Date | null) => {
+      statuses.push(status);
+      if (at) retryAt = at.getTime();
+    }),
+  };
+  return { store, statuses, used: () => used };
+}
+
+type Answer = { status: number; body?: string; headers?: Record<string, string> };
+
+function fetchAnswering(...answers: Answer[]) {
+  return vi.fn(async () => {
+    const next = answers.shift() ?? { status: 200 };
+    return new Response(next.body ?? JSON.stringify({ data: [] }), { status: next.status, headers: next.headers });
+  });
+}
+
+function perenualWith(usage: UsageStore, fetchImpl: ReturnType<typeof fetchAnswering>, limit = 90) {
+  const http = httpClient({ deadline: Date.now() + 25_000, fetchImpl });
+  const gate = usageGate({ usage, provider: "perenual", dailyLimit: limit, classify: perenualUsage });
+  return perenual(providerClient(http, gate), "k");
+}
+
+describe("usageGate (PR #15 review, item 1)", () => {
+  it("reserves against the KST day and our cap", async () => {
+    const usage = memoryUsage();
+    const gate = usageGate({
+      usage: usage.store,
+      provider: "perenual",
+      dailyLimit: 90,
+      classify: perenualUsage,
+      now: () => new Date("2026-11-15T03:00:00Z"),
+    });
+    await gate("search").open();
+    expect(usage.store.reserve).toHaveBeenCalledWith("perenual", "search", "2026-11-14T15:00:00.000Z", 90);
+  });
+
+  it("with one call left, a retry after a 503 is not sent", async () => {
+    const usage = memoryUsage({ used: 89 });
+    const fetchImpl = fetchAnswering({ status: 503 }, { status: 200 });
+    const answer = await perenualWith(usage.store, fetchImpl).search("ficus");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(usage.used()).toBe(90);
+    expect(answer).toEqual({ kind: "unavailable" });
+  });
+
+  it("with one call left, two requests at the same time get one call between them", async () => {
+    const usage = memoryUsage({ used: 89 });
+    const fetchImpl = fetchAnswering({ status: 200 }, { status: 200 });
+    const adapter = perenualWith(usage.store, fetchImpl);
+    const answers = await Promise.all([adapter.search("ficus"), adapter.search("ficus")]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(usage.used()).toBe(90);
+    expect(answers.map((answer) => answer.kind).sort()).toEqual(["ok", "quota"]);
+  });
+
+  it("sends nothing when the reservation cannot be written, however often it is asked", async () => {
+    const usage = memoryUsage({ failWrites: true });
+    const fetchImpl = fetchAnswering({ status: 200 });
+    const adapter = perenualWith(usage.store, fetchImpl, 1);
+    for (let i = 0; i < 3; i += 1) expect(await adapter.search("ficus")).toEqual({ kind: "unavailable" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("records a Perenual quota answer so the DB stops Perenual for the day", async () => {
+    const usage = memoryUsage();
+    await perenualWith(usage.store, fetchAnswering({ status: 429, body: "Too Many Requests" })).search("ficus");
+    expect(usage.statuses).toEqual(["quota_exceeded"]);
+  });
+
+  it("does not fail the request when settling fails; the reserved row still counts", async () => {
+    const usage = memoryUsage();
+    vi.mocked(usage.store.settle).mockRejectedValueOnce(new Error("update failed"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const answer = await perenualWith(usage.store, fetchAnswering({ status: 200 })).search("ficus");
+    expect(answer).toEqual({ kind: "ok", species: [] });
+    expect(usage.used()).toBe(1);
+    expect(error).toHaveBeenCalledWith("Could not settle perenual usage");
+    error.mockRestore();
   });
 });
 
-function store(today: { calls: number; quotaHit: boolean } | "error"): UsageStore & { logCalls: ReturnType<typeof vi.fn> } {
-  return {
-    usageSince: vi.fn(async () => {
-      if (today === "error") throw new Error("db down");
-      return today;
-    }),
-    logCalls: vi.fn(async () => {}),
-  };
-}
+describe("Trefle back-off (PR #15 review, item 4)", () => {
+  it("skips Trefle until its Retry-After time, then asks again", async () => {
+    let now = Date.parse("2026-11-15T03:00:00Z");
+    const usage = memoryUsage({ now: () => now });
+    const fetchImpl = fetchAnswering({ status: 429, headers: { "retry-after": "30" } }, { status: 200 });
+    const http = httpClient({ deadline: Number.POSITIVE_INFINITY, fetchImpl, now: () => now });
+    const gate = usageGate({
+      usage: usage.store,
+      provider: "trefle",
+      dailyLimit: 300,
+      classify: (result) => trefleUsage(result, now),
+      now: () => new Date(now),
+    });
+    const adapter = trefle(providerClient(http, gate), "t");
 
-describe("meter", () => {
-  const now = () => new Date("2026-11-15T03:00:00Z");
+    expect(await adapter.search("ficus")).toEqual({ kind: "unavailable" });
+    now += 10_000;
+    expect(await adapter.search("ficus")).toEqual({ kind: "unavailable" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
 
-  it("allows calls below our daily cap", async () => {
-    const usage = store({ calls: 89, quotaHit: false });
-    expect(await meter(usage, "perenual", 90, now).canCall()).toBe(true);
-    expect(usage.usageSince).toHaveBeenCalledWith("perenual", "2026-11-14T15:00:00.000Z");
+    now += 21_000;
+    expect(await adapter.search("ficus")).toEqual({ kind: "ok", species: [] });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it("stops at the cap", async () => {
-    expect(await meter(store({ calls: 90, quotaHit: false }), "perenual", 90, now).canCall()).toBe(false);
-  });
-
-  it("stops for the day once the provider reported its quota used up", async () => {
-    expect(await meter(store({ calls: 3, quotaHit: true }), "perenual", 90, now).canCall()).toBe(false);
-  });
-
-  it("does not call a provider when usage cannot be read", async () => {
-    expect(await meter(store("error"), "trefle", 300, now).canCall()).toBe(false);
-  });
-
-  it("does not fail the search when logging fails", async () => {
-    const usage = store({ calls: 0, quotaHit: false });
-    usage.logCalls.mockRejectedValue(new Error("insert failed"));
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(meter(usage, "trefle", 300, now).record("search", { kind: "ok", calls: 1 })).resolves.toBeUndefined();
-    expect(error).toHaveBeenCalledWith("Could not log trefle usage");
-    error.mockRestore();
+  it("records the 429 as a failure with a retry time, not as a daily quota", () => {
+    const now = Date.parse("2026-11-15T03:00:00Z");
+    const result = { kind: "response" as const, status: 429, headers: new Headers({ "retry-after": "5" }), body: "" };
+    expect(trefleUsage(result, now)).toEqual({ status: "failure", retryAt: new Date(now + 5_000) });
   });
 });

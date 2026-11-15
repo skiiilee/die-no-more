@@ -49,7 +49,15 @@ export type SpeciesCandidate = {
  * - unavailable: no provider could be reached or none is configured.
  */
 export type SearchOutcome =
-  | { kind: "results"; query: string; from: "plant_db" | "providers"; candidates: SpeciesCandidate[]; partial: boolean }
+  | {
+      kind: "results";
+      query: string;
+      from: "plant_db" | "providers";
+      candidates: SpeciesCandidate[];
+      partial: boolean;
+      /** Some results could not be stored (provider ID already used by another name) and were left out. */
+      dropped: boolean;
+    }
   | { kind: "empty"; query: string; korean: boolean; partial: boolean }
   | { kind: "quota"; query: string }
   | { kind: "unavailable"; query: string }
@@ -114,10 +122,8 @@ export type FoundSpecies = {
   source: SearchProvider;
 };
 
-/** Provider usage for one day, from api_usage_logs (ADR-0004 D5). */
-export type UsageToday = { calls: number; quotaHit: boolean };
-
-export type UsageStatus = "success" | "failure" | "quota_exceeded";
+/** api_usage_logs status. 'reserved' until the attempt ends; it still counts (PR #15 review, item 1). */
+export type UsageStatus = "reserved" | "success" | "failure" | "quota_exceeded";
 
 /**
  * Whether a provider photo URL can be stored. Perenual serves pre-signed links

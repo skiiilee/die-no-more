@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HttpCall, HttpClient } from "./http";
-import { parseBenchmark, parseDetails, parseSearch, perenual } from "./perenual";
+import type { HttpCall, HttpResult, ProviderClient } from "./http";
+import { parseBenchmark, parseDetails, parseSearch, perenual, perenualUsage } from "./perenual";
 
-function answering(status: number, body: unknown, attempts = 1): HttpClient & { get: ReturnType<typeof vi.fn> } {
-  const call: HttpCall = {
-    attempts,
-    result: {
-      kind: "response",
-      status,
-      headers: new Headers(),
-      body: typeof body === "string" ? body : JSON.stringify(body),
-    },
-  };
+function response(status: number, body: unknown): HttpResult {
+  return { kind: "response", status, headers: new Headers(), body: typeof body === "string" ? body : JSON.stringify(body) };
+}
+
+function answering(status: number, body: unknown): ProviderClient & { get: ReturnType<typeof vi.fn> } {
+  const call: HttpCall = { attempts: 1, result: response(status, body) };
   return { get: vi.fn(async () => call) };
+}
+
+function blocked(reason: "limit" | "quota" | "cooldown" | "usage_unavailable"): ProviderClient {
+  return { get: async () => ({ attempts: 0, result: { kind: "blocked", reason } }) };
 }
 
 const UPGRADE = "Please Upgrade Plan - https://perenual.com/subscription-api-pricing. Sorry😬";
@@ -75,9 +75,11 @@ describe("parseSearch", () => {
     ]);
   });
 
-  it("reads an unexpected body as no results", () => {
-    expect(parseSearch("Upgrade")).toEqual([]);
-    expect(parseSearch({ data: "x" })).toEqual([]);
+  it("tells a body that is not a species list (null) from an empty list (PR #15 review, item 2)", () => {
+    expect(parseSearch(undefined)).toBeNull();
+    expect(parseSearch("Upgrade")).toBeNull();
+    expect(parseSearch({ data: "x" })).toBeNull();
+    expect(parseSearch({ data: [] })).toEqual([]);
   });
 });
 
@@ -85,6 +87,7 @@ describe("parseDetails", () => {
   it("keeps watering, benchmark, sunlight and care level, and ignores the rest", () => {
     expect(
       parseDetails({
+        id: 2961,
         watering: "Average",
         watering_general_benchmark: { value: '"7-10"', unit: "days" },
         sunlight: ["Part shade", "full shade", 3],
@@ -100,32 +103,59 @@ describe("parseDetails", () => {
       description: "The Indian Rubberplant is a houseplant.",
     });
   });
+
+  it("returns null for a body that is not a species record", () => {
+    expect(parseDetails(undefined)).toBeNull();
+    expect(parseDetails({ watering: "Average" })).toBeNull();
+    expect(parseDetails([])).toBeNull();
+  });
 });
 
 describe("perenual adapter", () => {
   it("never requests care details above the free range", async () => {
     const client = answering(200, {});
-    expect(await perenual(client, "k").details(5257)).toEqual({ kind: "outside_free_range", calls: 0 });
+    expect(await perenual(client, "k").details(5257)).toEqual({ kind: "outside_free_range" });
     expect(client.get).not.toHaveBeenCalled();
   });
 
   it("reads 429 'Please Upgrade Plan' as outside the free range, not as a quota", async () => {
-    expect(await perenual(answering(429, UPGRADE), "k").details(2000)).toEqual({ kind: "outside_free_range", calls: 1 });
+    expect(await perenual(answering(429, UPGRADE), "k").details(2000)).toEqual({ kind: "outside_free_range" });
   });
 
   it("reads any other 429 as the daily quota", async () => {
-    expect(await perenual(answering(429, "Too Many Requests"), "k").details(2000)).toEqual({ kind: "quota", calls: 1 });
-    expect(await perenual(answering(429, "Too Many Requests"), "k").search("ficus")).toEqual({ kind: "quota", calls: 1 });
+    expect(await perenual(answering(429, "Too Many Requests"), "k").details(2000)).toEqual({ kind: "quota" });
+    expect(await perenual(answering(429, "Too Many Requests"), "k").search("ficus")).toEqual({ kind: "quota" });
   });
 
-  it("separates a missing species from a failure, and counts retried attempts", async () => {
-    expect(await perenual(answering(404, ""), "k").details(10)).toEqual({ kind: "not_found", calls: 1 });
-    expect(await perenual(answering(502, "", 2), "k").details(10)).toEqual({ kind: "unavailable", calls: 2 });
+  it("separates a missing species from a failure", async () => {
+    expect(await perenual(answering(404, ""), "k").details(10)).toEqual({ kind: "not_found" });
+    expect(await perenual(answering(502, ""), "k").details(10)).toEqual({ kind: "unavailable" });
   });
 
   it("returns parsed care for a species inside the free range", async () => {
-    const answer = await perenual(answering(200, { watering: "Frequent" }), "k").details(2773);
+    const answer = await perenual(answering(200, { id: 2773, watering: "Frequent" }), "k").details(2773);
     expect(answer).toMatchObject({ kind: "ok", care: { watering: "Frequent" } });
+  });
+
+  it("treats a 200 with a broken body as a failure, never as 'no data' (PR #15 review, item 2)", async () => {
+    const maintenance = "<html>temporary maintenance</html>";
+    expect(await perenual(answering(200, maintenance), "k").details(2773)).toEqual({ kind: "unavailable" });
+    expect(await perenual(answering(200, maintenance), "k").search("ficus")).toEqual({ kind: "unavailable" });
+    expect(await perenual(answering(200, { data: [] }), "k").search("ficus")).toEqual({ kind: "ok", species: [] });
+  });
+
+  it("maps a refused call gate: our cap or the provider quota → quota, anything else → unavailable", async () => {
+    expect(await perenual(blocked("limit"), "k").search("ficus")).toEqual({ kind: "quota" });
+    expect(await perenual(blocked("quota"), "k").details(10)).toEqual({ kind: "quota" });
+    expect(await perenual(blocked("usage_unavailable"), "k").search("ficus")).toEqual({ kind: "unavailable" });
+  });
+
+  it("records the right usage status for each answer", () => {
+    expect(perenualUsage(response(200, {}))).toEqual({ status: "success", retryAt: null });
+    expect(perenualUsage(response(429, UPGRADE))).toEqual({ status: "success", retryAt: null });
+    expect(perenualUsage(response(429, "Too Many Requests"))).toEqual({ status: "quota_exceeded", retryAt: null });
+    expect(perenualUsage(response(503, ""))).toEqual({ status: "failure", retryAt: null });
+    expect(perenualUsage({ kind: "failed", reason: "timeout" })).toEqual({ status: "failure", retryAt: null });
   });
 
   it("sends the key and query as URL parameters to the server-side API", async () => {

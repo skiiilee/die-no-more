@@ -1,11 +1,13 @@
-import type { PerenualCare, ProviderSpecies } from "@/types/species";
-import { httpsUrl, jsonBody, record, text, type HttpCall, type HttpClient } from "./http";
+import type { PerenualCare, ProviderSpecies, UsageStatus } from "@/types/species";
+import { httpsUrl, jsonBody, record, text, type HttpCall, type HttpResult, type ProviderClient } from "./http";
 
 /**
  * Perenual adapter (docs/04-api-design.md "Provider check" and "Live check").
  * Search works for every species; care details on the free plan only for
  * species IDs 1–3000. Above that the API answers 429 "Please Upgrade Plan",
  * which means "outside the free range", not a quota: never retried.
+ * A 200 whose body is not the expected shape is a failure, never "no data",
+ * so a broken answer is not stored as a checked result (PR #15 review, item 2).
  */
 
 const BASE = "https://perenual.com/api/v2";
@@ -14,21 +16,32 @@ const BASE = "https://perenual.com/api/v2";
 export const FREE_RANGE_MAX_ID = 3000;
 
 export type ProviderFailure = { kind: "quota" } | { kind: "unavailable" };
-export type SearchAnswer = ({ kind: "ok"; species: ProviderSpecies[] } | ProviderFailure) & { calls: number };
-export type DetailsAnswer = (
+export type SearchAnswer = { kind: "ok"; species: ProviderSpecies[] } | ProviderFailure;
+export type DetailsAnswer =
   | { kind: "ok"; care: PerenualCare }
   | { kind: "outside_free_range" }
   | { kind: "not_found" }
-  | ProviderFailure
-) & { calls: number };
+  | ProviderFailure;
 
-function isUpgradeAnswer(call: HttpCall): boolean {
-  return call.result.kind === "response" && call.result.status === 429 && /upgrade/i.test(call.result.body);
+/** How one attempt is recorded in api_usage_logs. */
+export type UsageSettlement = { status: Exclude<UsageStatus, "reserved">; retryAt: Date | null };
+
+function isUpgradeAnswer(result: HttpResult): boolean {
+  return result.kind === "response" && result.status === 429 && /upgrade/i.test(result.body);
+}
+
+/** Usage row for a Perenual attempt: a 429 other than "Please Upgrade Plan" is the daily quota. */
+export function perenualUsage(result: HttpResult): UsageSettlement {
+  if (result.kind !== "response" || result.status >= 500) return { status: "failure", retryAt: null };
+  if (result.status === 429 && !isUpgradeAnswer(result)) return { status: "quota_exceeded", retryAt: null };
+  return { status: "success", retryAt: null };
 }
 
 /** Non-OK answers shared by search and details. */
 function failure(call: HttpCall): ProviderFailure {
-  if (call.result.kind === "response" && call.result.status === 429) return { kind: "quota" };
+  const { result } = call;
+  if (result.kind === "blocked") return { kind: result.reason === "limit" || result.reason === "quota" ? "quota" : "unavailable" };
+  if (result.kind === "response" && result.status === 429) return { kind: "quota" };
   return { kind: "unavailable" };
 }
 
@@ -42,9 +55,10 @@ function photo(value: unknown): string | null {
   return image ? (httpsUrl(image.small_url) ?? httpsUrl(image.thumbnail) ?? httpsUrl(image.regular_url)) : null;
 }
 
-export function parseSearch(body: unknown): ProviderSpecies[] {
+/** species-list items, or null when the body is not a species list. */
+export function parseSearch(body: unknown): ProviderSpecies[] | null {
   const data = record(body)?.data;
-  if (!Array.isArray(data)) return [];
+  if (!Array.isArray(data)) return null;
   const species: ProviderSpecies[] = [];
   for (const item of data) {
     const row = record(item);
@@ -80,8 +94,10 @@ export function parseBenchmark(value: unknown): { min: number; max: number } | n
   return min >= 1 && min <= max && max <= 365 ? { min, max } : null;
 }
 
-export function parseDetails(body: unknown): PerenualCare {
-  const row = record(body) ?? {};
+/** Species details, or null when the body is not a species record (no numeric id). */
+export function parseDetails(body: unknown): PerenualCare | null {
+  const row = record(body);
+  if (!row || typeof row.id !== "number") return null;
   const sunlight = Array.isArray(row.sunlight)
     ? row.sunlight.map((item) => text(item)?.toLowerCase()).filter((item): item is string => Boolean(item))
     : [];
@@ -94,31 +110,32 @@ export function parseDetails(body: unknown): PerenualCare {
   };
 }
 
-export function perenual(client: HttpClient, key: string) {
+export function perenual(client: ProviderClient, key: string) {
   const url = (path: string, params: Record<string, string> = {}) =>
     `${BASE}${path}?${new URLSearchParams({ key, ...params }).toString()}`;
 
   return {
     async search(query: string): Promise<SearchAnswer> {
-      const call = await client.get(url("/species-list", { q: query }));
-      const { result } = call;
-      if (result.kind === "response" && result.status === 200) {
-        return { kind: "ok", species: parseSearch(jsonBody(result)), calls: call.attempts };
+      const call = await client.get(url("/species-list", { q: query }), "search");
+      if (call.result.kind === "response" && call.result.status === 200) {
+        const species = parseSearch(jsonBody(call.result));
+        return species ? { kind: "ok", species } : { kind: "unavailable" };
       }
-      return { ...failure(call), calls: call.attempts };
+      return failure(call);
     },
 
     /** Care details. IDs above the free range are not requested at all. */
     async details(id: number): Promise<DetailsAnswer> {
-      if (id > FREE_RANGE_MAX_ID) return { kind: "outside_free_range", calls: 0 };
-      const call = await client.get(url(`/species/details/${id}`));
+      if (id > FREE_RANGE_MAX_ID) return { kind: "outside_free_range" };
+      const call = await client.get(url(`/species/details/${id}`), "details");
       const { result } = call;
       if (result.kind === "response" && result.status === 200) {
-        return { kind: "ok", care: parseDetails(jsonBody(result)), calls: call.attempts };
+        const care = parseDetails(jsonBody(result));
+        return care ? { kind: "ok", care } : { kind: "unavailable" };
       }
-      if (isUpgradeAnswer(call)) return { kind: "outside_free_range", calls: call.attempts };
-      if (result.kind === "response" && result.status === 404) return { kind: "not_found", calls: call.attempts };
-      return { ...failure(call), calls: call.attempts };
+      if (isUpgradeAnswer(result)) return { kind: "outside_free_range" };
+      if (result.kind === "response" && result.status === 404) return { kind: "not_found" };
+      return failure(call);
     },
   };
 }

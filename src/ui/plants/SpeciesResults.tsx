@@ -64,6 +64,7 @@ export function SpeciesResults({ outcome }: { outcome: SearchOutcome }) {
       {outcome.kind === "results" ? (
         <>
           {outcome.partial ? <PartialNote /> : null}
+          {outcome.dropped ? <p className={styles.note}>일부 결과를 저장하지 못해 목록에서 뺐습니다.</p> : null}
           <ul className={styles.list} aria-label="검색된 식물">
             {outcome.candidates.map((candidate) => (
               <li key={candidate.id} className={styles.candidate}>

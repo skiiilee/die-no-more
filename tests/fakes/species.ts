@@ -3,8 +3,6 @@ import type { SpeciesStore } from "@/repo/species-repo";
 import { isStorableImageUrl, type FoundSpecies, type PerenualCare, type ProviderSpecies, type SpeciesRecord } from "@/types/species";
 import type { DetailsAnswer, PerenualAdapter, SearchAnswer } from "@/service/adapters/perenual";
 import type { KoreanNameAnswer, TrefleAdapter, TrefleSearchAnswer } from "@/service/adapters/trefle";
-import type { Meter } from "@/service/provider-usage";
-import type { Metered } from "@/service/species-search";
 
 /** Test doubles shared by species-search and species-preview tests. */
 
@@ -29,34 +27,29 @@ export function providerSpecies(provider: "perenual" | "trefle", id: number, sci
   return { provider, providerId: id, scientificName, commonNameEn: null, family: null, imageUrl: null };
 }
 
-export function fakeMeter(allowed = true): Meter & { record: ReturnType<typeof vi.fn> } {
-  return { canCall: vi.fn(async () => allowed), record: vi.fn(async () => {}) };
-}
-
 export function fakePerenual(
-  search: SearchAnswer = { kind: "ok", species: [], calls: 1 },
-  details: DetailsAnswer = { kind: "not_found", calls: 1 },
-  meterAllows = true,
+  search: SearchAnswer = { kind: "ok", species: [] },
+  details: DetailsAnswer = { kind: "not_found" },
 ) {
-  const adapter = { search: vi.fn(async () => search), details: vi.fn(async () => details) };
-  return { adapter, meter: fakeMeter(meterAllows) } satisfies Metered<PerenualAdapter>;
+  return { search: vi.fn(async () => search), details: vi.fn(async () => details) } satisfies PerenualAdapter;
 }
 
 export function fakeTrefle(
-  search: TrefleSearchAnswer = { kind: "ok", species: [], calls: 1 },
-  koreanName: KoreanNameAnswer = { kind: "ok", koreanName: null, calls: 1 },
-  meterAllows = true,
+  search: TrefleSearchAnswer = { kind: "ok", species: [] },
+  koreanName: KoreanNameAnswer = { kind: "ok", koreanName: null },
 ) {
-  const adapter = { search: vi.fn(async () => search), koreanName: vi.fn(async () => koreanName) };
-  return { adapter, meter: fakeMeter(meterAllows) } satisfies Metered<TrefleAdapter>;
+  return { search: vi.fn(async () => search), koreanName: vi.fn(async () => koreanName) } satisfies TrefleAdapter;
 }
 
-export function fakeSpeciesStore(options: { local?: SpeciesRecord[]; record?: SpeciesRecord | null; care?: PerenualCare | null } = {}) {
+export function fakeSpeciesStore(
+  options: { local?: SpeciesRecord[]; record?: SpeciesRecord | null; care?: PerenualCare | null; dropKeys?: string[] } = {},
+) {
   let counter = 0;
   const store = {
     searchLocal: vi.fn(async () => options.local ?? []),
-    saveFound: vi.fn(async (found: FoundSpecies[]) =>
-      found.map((item) =>
+    saveFound: vi.fn(async (found: FoundSpecies[]) => {
+      const kept = found.filter((item) => !options.dropKeys?.includes(item.scientificNameKey));
+      const records = kept.map((item) =>
         record({
           id: `20000000-0000-0000-0000-00000000000${counter++}`,
           scientificNameKey: item.scientificNameKey,
@@ -64,8 +57,9 @@ export function fakeSpeciesStore(options: { local?: SpeciesRecord[]; record?: Sp
           // Like the real store: expiring photo links are not stored.
           imageUrl: isStorableImageUrl(item.imageUrl) ? item.imageUrl : null,
         }),
-      ),
-    ),
+      );
+      return { records, dropped: found.length - kept.length };
+    }),
     getRecord: vi.fn(async () => (options.record === undefined ? record() : options.record)),
     getCare: vi.fn(async () => options.care ?? null),
     saveKoreanName: vi.fn(async () => {}),

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { FoundSpecies } from "@/types/species";
-import { careRows, insertRow, missingFields, toCare, type Row } from "./species-repo";
+import { PlantStoreError } from "./plant-repo";
+import { careRows, insertRow, missingFields, supabaseSpeciesStore, toCare, type Row } from "./species-repo";
+import type { SupabaseServerClient } from "./supabase-client";
 
 const CARE = {
   watering: "Average",
@@ -83,5 +85,73 @@ describe("storing search results", () => {
       common_name_en: "Rubber plant",
       family: "Moraceae",
     });
+  });
+});
+
+type DbError = { code: string; message: string } | null;
+
+/**
+ * Minimal plant_species client for saveFound: the first upsert is the batch,
+ * later ones are single rows. `stored` is what the read-back returns.
+ */
+function fakeClient(options: { batch?: DbError; items?: Record<string, DbError>; stored: Row[]; update?: DbError }) {
+  let upserts = 0;
+  const builder = {
+    upsert: async (rows: { scientific_name_key: string }[]) => {
+      upserts += 1;
+      return { error: upserts === 1 ? (options.batch ?? null) : (options.items?.[rows[0].scientific_name_key] ?? null) };
+    },
+    select: () => ({ in: async () => ({ data: options.stored, error: null }) }),
+    update: () => ({ eq: async () => ({ error: options.update ?? null }) }),
+  };
+  return { from: () => builder } as unknown as SupabaseServerClient;
+}
+
+const UNIQUE = { code: "23505", message: "duplicate key value violates unique constraint" };
+const DENIED = { code: "42501", message: "permission denied" };
+const LYRATA: FoundSpecies = { ...FOUND, scientificNameKey: "ficus lyrata", scientificName: "Ficus lyrata", perenualId: 2963 };
+const rowFor = (found: FoundSpecies, id: string): Row => ({
+  ...ROW,
+  id,
+  scientific_name_key: found.scientificNameKey,
+  scientific_name: found.scientificName,
+  perenual_id: found.perenualId,
+  common_name_en: found.commonNameEn,
+  family: found.family,
+});
+
+describe("saveFound (PR #15 review, item 3)", () => {
+  it("stores the results and returns them in the order found", async () => {
+    const store = supabaseSpeciesStore(fakeClient({ stored: [rowFor(LYRATA, "b"), rowFor(FOUND, "a")] }));
+    const saved = await store.saveFound([FOUND, LYRATA]);
+    expect(saved.records.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(saved.dropped).toBe(0);
+  });
+
+  it("throws on a write failure other than a provider ID clash, even when reads still work", async () => {
+    const store = supabaseSpeciesStore(fakeClient({ batch: DENIED, stored: [] }));
+    await expect(store.saveFound([FOUND, LYRATA])).rejects.toBeInstanceOf(PlantStoreError);
+  });
+
+  it("throws when a single-row retry fails for another reason", async () => {
+    const store = supabaseSpeciesStore(
+      fakeClient({ batch: UNIQUE, items: { "ficus elastica": UNIQUE, "ficus lyrata": DENIED }, stored: [] }),
+    );
+    await expect(store.saveFound([FOUND, LYRATA])).rejects.toBeInstanceOf(PlantStoreError);
+  });
+
+  it("keeps the rows that could be stored and counts the clashing one as dropped", async () => {
+    const store = supabaseSpeciesStore(
+      fakeClient({ batch: UNIQUE, items: { "ficus elastica": UNIQUE }, stored: [rowFor(LYRATA, "b")] }),
+    );
+    const saved = await store.saveFound([FOUND, LYRATA]);
+    expect(saved.records.map((r) => r.scientificNameKey)).toEqual(["ficus lyrata"]);
+    expect(saved.dropped).toBe(1);
+  });
+
+  it("throws when filling missing fields fails for a reason other than a clash", async () => {
+    const stored = [{ ...rowFor(FOUND, "a"), perenual_id: null }];
+    const store = supabaseSpeciesStore(fakeClient({ stored, update: DENIED }));
+    await expect(store.saveFound([FOUND])).rejects.toBeInstanceOf(PlantStoreError);
   });
 });

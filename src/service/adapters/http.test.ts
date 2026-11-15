@@ -1,5 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
-import { httpClient, httpsUrl } from "./http";
+import { httpClient, httpsUrl, retryAfter, type CallGate } from "./http";
+
+/** Gate that allows the first `allowed` attempts, then refuses with `reason`. */
+function gate(allowed: number, reason: "limit" | "cooldown" = "limit") {
+  const settled: unknown[] = [];
+  let opened = 0;
+  const callGate: CallGate = {
+    open: vi.fn(async () => {
+      if (opened >= allowed) return { ok: false as const, reason };
+      opened += 1;
+      return {
+        ok: true as const,
+        ticket: {
+          settle: async (result: unknown) => {
+            settled.push(result);
+          },
+        },
+      };
+    }),
+  };
+  return { callGate, settled };
+}
 
 /** Fake clock: each fetch advances time by `cost` ms. */
 function setup(responses: (number | "network" | "timeout")[], options: { start?: number; cost?: number } = {}) {
@@ -66,6 +87,43 @@ describe("httpClient (ADR-0003 D7)", () => {
     await setup([200], { start: 13_000 }).client.get("https://example.test");
     expect(timeouts).toEqual([10_000, 7_000]);
     spy.mockRestore();
+  });
+});
+
+describe("httpClient with a call gate (PR #15 review, item 1)", () => {
+  it("sends nothing when the gate refuses", async () => {
+    const { client, fetchImpl } = setup([200]);
+    const call = await client.get("https://example.test", gate(0).callGate);
+    expect(call).toEqual({ attempts: 0, result: { kind: "blocked", reason: "limit" } });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reserves the retry too: with one call left, a failed attempt is not retried", async () => {
+    const { client, fetchImpl } = setup([503, 200]);
+    const { callGate, settled } = gate(1);
+    const call = await client.get("https://example.test", callGate);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(call).toMatchObject({ attempts: 1, result: { kind: "response", status: 503 } });
+    expect(settled).toHaveLength(1);
+  });
+
+  it("settles every attempt it sent", async () => {
+    const { client } = setup([503, 200]);
+    const { callGate, settled } = gate(2);
+    await client.get("https://example.test", callGate);
+    expect(settled).toEqual([expect.objectContaining({ status: 503 }), expect.objectContaining({ status: 200 })]);
+  });
+});
+
+describe("retryAfter", () => {
+  const now = Date.parse("2026-11-15T00:00:00Z");
+  it("reads seconds and HTTP dates, and falls back when missing or invalid", () => {
+    expect(retryAfter(new Headers({ "retry-after": "30" }), now, 60_000).toISOString()).toBe("2026-11-15T00:00:30.000Z");
+    expect(retryAfter(new Headers({ "retry-after": "Sun, 15 Nov 2026 00:02:00 GMT" }), now, 60_000).toISOString()).toBe(
+      "2026-11-15T00:02:00.000Z",
+    );
+    expect(retryAfter(new Headers(), now, 60_000).toISOString()).toBe("2026-11-15T00:01:00.000Z");
+    expect(retryAfter(new Headers({ "retry-after": "soon" }), now, 60_000).toISOString()).toBe("2026-11-15T00:01:00.000Z");
   });
 });
 
