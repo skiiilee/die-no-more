@@ -20,7 +20,7 @@ PostgreSQL + Supabase; UUID primary keys and timestamptz event times. Date math 
 - `plant_observations`: `plant_id`, `record_id` nullable (at most one observation per record), soil state, leaf state, pest observations, notes, `observed_at`. Blank or whitespace-only text counts as empty.
 - `care_logs`: `plant_id`, `record_id` nullable (null for S09 task completion; at most one log per care type per record), care type, `performed_at`, amount/unit, notes, `idempotency_key` unique.
 - `care_tasks`: `plant_id`, type (`soil_check` | `fertilize`), `due_at`, status (`pending` | `completed` | `snoozed` | `skipped` | `cancelled`; overdue is derived), `completed_at`, `snoozed_until`.
-- `api_usage_logs`: provider, operation, status, `called_at` (daily quota per KST day, D8).
+- `api_usage_logs`: provider, operation, status (`reserved` | `success` | `failure` | `quota_exceeded`), `called_at`, `retry_at` (provider back-off). Calls are reserved through `reserve_provider_call()` before they are sent (D8, ADR-0004 D5).
 - `storage_deletions`: `user_id`, `deletion_request_id`, storage path, status (`pending` | `done` | `failed`), attempts, last error. Filled in the same transaction that deletes rows (D18).
 
 ## Constraints
@@ -34,7 +34,7 @@ PostgreSQL + Supabase; UUID primary keys and timestamptz event times. Date math 
 
 ## Implemented (2026-11-12)
 
-Migrations: `supabase/migrations/20261111171114_initial_schema.sql`, `20261113090000_azure_translator_provider.sql` (`api_usage_logs.provider`: `google_translate` → `azure_translator`, ADR-0004), `20261113100000_user_plants_required_choices.sql` (S05 choices `environment`, `light_level`, `pot_material`, `initial_last_watered_range`, `initial_last_repotted_range` are NOT NULL), `20261115100000_species_search.sql` (pg_trgm search, S04 columns on `plant_species`, `species_care.field` adds `care_level` and `description`). RLS tests: `supabase/tests/database/rls.test.sql` (run in CI).
+Migrations: `supabase/migrations/20261111171114_initial_schema.sql`, `20261113090000_azure_translator_provider.sql` (`api_usage_logs.provider`: `google_translate` → `azure_translator`, ADR-0004), `20261113100000_user_plants_required_choices.sql` (S05 choices `environment`, `light_level`, `pot_material`, `initial_last_watered_range`, `initial_last_repotted_range` are NOT NULL), `20261115100000_species_search.sql` (pg_trgm search, S04 columns on `plant_species`, `species_care.field` adds `care_level` and `description`), `20261115110000_provider_call_reservation.sql` (`reserve_provider_call()`, `api_usage_logs.status` adds `reserved`, `retry_at`). RLS tests: `supabase/tests/database/rls.test.sql` (run in CI).
 
 - Per-user tables: owner-only RLS for every operation, plus a composite FK `(plant_id, user_id) → user_plants(id, user_id)` so a row cannot point at another user's pot.
 - `anon` has no table access. Shared species tables are readable and cacheable (insert/update, no delete) by signed-in users, because the server writes search results with the owner's session. Kept as is for a single user; see `docs/09-deferred-items.md` DF-01.
