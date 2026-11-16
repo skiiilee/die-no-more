@@ -28,7 +28,7 @@ export type RegistrationContext =
  * species that is not in the DB.
  */
 export async function loadRegistrationContext(
-  store: Pick<PlantStore, "getSpecies">,
+  store: Pick<PlantStore, "getSpecies" | "getReminderData">,
   input: RawInput,
   remindersEnabled: boolean,
 ): Promise<RegistrationContext> {
@@ -39,13 +39,14 @@ export async function loadRegistrationContext(
   if (identity.kind === "species") {
     const species = await store.getSpecies(identity.speciesId);
     if (!species) return { ok: false, message: "선택한 식물 정보를 찾을 수 없습니다. 다시 검색해 주세요." };
-    // Care data lookup arrives with the search PR; until then nothing is offered.
+    // Reminder choices follow the species' stored Perenual data (S04-B saved it).
+    const care = remindersEnabled ? await store.getReminderData(species.id) : null;
     return {
       ok: true,
       identity,
       species,
       plantName: plantName({ species, userEnteredName: null }),
-      reminders: reminderOptions(remindersEnabled, null),
+      reminders: reminderOptions(remindersEnabled, care),
     };
   }
 
@@ -86,7 +87,7 @@ function echo(input: RawInput): RegistrationValues {
  * user's input is echoed back so nothing typed is lost.
  */
 export async function registerPot(
-  store: Pick<PlantStore, "getSpecies" | "insertPot">,
+  store: Pick<PlantStore, "getSpecies" | "getReminderData" | "insertPot">,
   input: RawInput,
   remindersEnabled: boolean,
 ): Promise<{ ok: true; id: string } | { ok: false; state: RegisterFormState }> {

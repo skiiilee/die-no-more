@@ -555,5 +555,175 @@ select is(
   'B cannot list A''s photos'
 );
 
+-- ---------------------------------------------------------------------------
+-- Name search: plant DB search and stored provider answers (S03/S04)
+-- ---------------------------------------------------------------------------
+select lives_ok(
+  $$ insert into public.plant_species (scientific_name_key, scientific_name, common_name_en, korean_name,
+                                       korean_name_source, source, image_url)
+     values ('ficus elastica', 'Ficus elastica', 'Rubber plant', '고무나무', 'trefle', 'trefle',
+             'https://example.test/ficus.jpg'),
+            ('ficus lyrata', 'Ficus lyrata', 'Fiddle-leaf fig', null, null, 'perenual', null),
+            ('aloe 50%', 'Aloe 50%', null, null, null, 'perenual', null) $$,
+  'search results are cached in the plant DB'
+);
+
+select is(
+  (select array_agg(scientific_name order by scientific_name) from public.search_species('FICUS')),
+  array['Ficus elastica', 'Ficus lyrata'],
+  'search ignores case and matches part of the scientific name'
+);
+
+select is(
+  (select scientific_name from public.search_species('  고무  ')),
+  'Ficus elastica',
+  'search matches part of the Korean name after trimming'
+);
+
+select is(
+  (select scientific_name from public.search_species('fiddle')),
+  'Ficus lyrata',
+  'search matches the English common name'
+);
+
+select is(
+  (select scientific_name from public.search_species('ficus lyrata') limit 1),
+  'Ficus lyrata',
+  'an exact scientific name comes first'
+);
+
+select is(
+  (select count(*)::int from public.search_species('%')),
+  1,
+  'a % in the query is matched literally, not as a wildcard'
+);
+
+select is((select count(*)::int from public.search_species('   ')), 0, 'a blank query finds nothing');
+
+select throws_ok(
+  $$ insert into public.plant_species (scientific_name_key, scientific_name, source, image_url)
+     values ('pilea peperomioides', 'Pilea peperomioides', 'trefle', 'http://example.test/p.jpg') $$,
+  '23514', null,
+  'reference photos must be https URLs'
+);
+
+select throws_ok(
+  $$ insert into public.plant_species (scientific_name_key, scientific_name, source, korean_name)
+     values ('hoya carnosa', 'Hoya carnosa', 'trefle', '호야') $$,
+  '23514', null,
+  'a Korean name records where it came from (ADR-0004 D2)'
+);
+
+select throws_ok(
+  $$ update public.plant_species set care_status = 'available' where scientific_name_key = 'ficus lyrata' $$,
+  '23514', null,
+  'a care lookup result records when it was checked'
+);
+
+select lives_ok(
+  $$ update public.plant_species set care_status = 'outside_free_range', care_checked_at = now()
+     where scientific_name_key = 'ficus lyrata' $$,
+  'a species outside the Perenual free range is marked once'
+);
+
+select lives_ok(
+  $$ insert into public.species_care (species_id, field, value, source, fetched_at)
+     select id, 'care_level', '"Medium"', 'perenual', now()
+     from public.plant_species where scientific_name_key = 'ficus elastica' $$,
+  'Perenual care level is stored as a care field'
+);
+
+select lives_ok(
+  $$ insert into public.species_care (species_id, field, value, source, fetched_at)
+     select id, 'description', '"A rubber plant."', 'perenual', now()
+     from public.plant_species where scientific_name_key = 'ficus elastica' $$,
+  'the Perenual description is stored in English as a care field'
+);
+
+-- ---------------------------------------------------------------------------
+-- Provider call reservation (PR #15 review, items 1 and 4)
+-- ---------------------------------------------------------------------------
+-- Role here is user B, who has no usage rows yet.
+select ok(
+  (select reservation_id is not null and blocked is null
+     from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 2)),
+  'a call is reserved while the cap has room'
+);
+
+select is(
+  (select status from public.api_usage_logs where provider = 'perenual' order by called_at desc limit 1),
+  'reserved',
+  'the reservation is a counted usage row'
+);
+
+select ok(
+  (select reservation_id is not null from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 2)),
+  'the second call of a cap of 2 is reserved'
+);
+
+select is(
+  (select blocked from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 2)),
+  'limit',
+  'the third call is refused: retries and repeated requests count against the cap'
+);
+
+select is(
+  (select blocked from public.reserve_provider_call('perenual', 'search', now() + interval '1 minute', 2)),
+  null,
+  'calls before the day boundary do not count (KST day passed in by the app)'
+);
+
+update public.api_usage_logs set status = 'quota_exceeded'
+ where id = (select id from public.api_usage_logs where provider = 'perenual' order by called_at limit 1);
+select is(
+  (select blocked from public.reserve_provider_call('perenual', 'search', now() - interval '1 hour', 90)),
+  'quota',
+  'after the provider reported its quota used up, no call is reserved that day'
+);
+
+select lives_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status, retry_at)
+     values ('trefle', 'search', 'failure', now() + interval '30 seconds') $$,
+  'a Trefle 429 records when it may be asked again'
+);
+
+select is(
+  (select blocked || ':' || (retry_at > now())::text
+     from public.reserve_provider_call('trefle', 'search', now() - interval '1 hour', 300)),
+  'cooldown:true',
+  'Trefle is skipped until its Retry-After time, and the time is returned'
+);
+
+update public.api_usage_logs set retry_at = now() - interval '1 second' where provider = 'trefle';
+select ok(
+  (select reservation_id is not null from public.reserve_provider_call('trefle', 'search', now() - interval '1 hour', 300)),
+  'Trefle is asked again once the Retry-After time has passed'
+);
+
+select ok(
+  (select reservation_id is not null from public.reserve_provider_call('plantnet', 'identify', now() - interval '1 hour', 1)),
+  'a cooldown or cap of one provider does not block another'
+);
+
+select throws_ok(
+  $$ insert into public.api_usage_logs (provider, operation, status) values ('trefle', 'search', 'pending') $$,
+  '23514', null,
+  'usage status is one of the known values'
+);
+
+reset role;
+set local role anon;
+select set_config('request.jwt.claims', '{"role": "anon"}', true);
+select throws_ok(
+  $$ select * from public.search_species('ficus') $$,
+  '42501', null,
+  'anon cannot search the plant DB'
+);
+select throws_ok(
+  $$ select * from public.reserve_provider_call('trefle', 'search', now(), 300) $$,
+  '42501', null,
+  'anon cannot reserve provider calls'
+);
+
 select * from finish();
 rollback;
