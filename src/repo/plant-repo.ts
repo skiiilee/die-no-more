@@ -13,6 +13,8 @@ export type PlantStore = {
   getPot(id: string): Promise<PotView | null>;
   listActivePots(): Promise<PotView[]>;
   getSpecies(id: string): Promise<SpeciesSummary | null>;
+  /** Which reminder intervals the species' Perenual data has (D16). User values never count (D13). */
+  getReminderData(speciesId: string): Promise<{ hasWateringBenchmark: boolean; hasFertilizerInterval: boolean }>;
 };
 
 /** Thrown when a query fails. Carries no database detail to the screen. */
@@ -128,6 +130,17 @@ export function supabasePlantStore(client: SupabaseServerClient): PlantStore {
       if (error) throw new PlantStoreError("getSpecies", { cause: error });
       if (!data) return null;
       return toSpecies(data as SpeciesRow);
+    },
+    async getReminderData(speciesId) {
+      const { data, error } = await client
+        .from("species_care")
+        .select("field")
+        .eq("species_id", speciesId)
+        .eq("source", "perenual")
+        .in("field", ["watering_benchmark", "fertilizer_interval"]);
+      if (error || !data) throw new PlantStoreError("getReminderData", { cause: error });
+      const fields = new Set((data as { field: string }[]).map((row) => row.field));
+      return { hasWateringBenchmark: fields.has("watering_benchmark"), hasFertilizerInterval: fields.has("fertilizer_interval") };
     },
   };
 }

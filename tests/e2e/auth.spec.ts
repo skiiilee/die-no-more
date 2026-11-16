@@ -34,7 +34,13 @@ test("without auth config, sign-in shows the setup message and stays on S01", as
   await expect(page).toHaveURL(/\/login\?next=%2Fplants$/);
 });
 
-for (const path of ["/plants/new", "/plants/new/manual", "/plants/new/register?mode=unknown"]) {
+for (const path of [
+  "/plants/new",
+  "/plants/new/manual",
+  "/plants/new/register?mode=unknown",
+  "/plants/new/search?q=ficus",
+  "/plants/new/species/10000000-0000-0000-0000-000000000001",
+]) {
   test(`pot registration screens need a session: ${path}`, async ({ page }) => {
     await page.goto(path);
     await expect(page).toHaveURL(/\/login\?next=/);
