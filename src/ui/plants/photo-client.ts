@@ -28,12 +28,21 @@ export async function uploadPhotoFile(blob: Blob): Promise<UploadAnswer | Client
   }
 }
 
-/** Best effort: a photo left behind is removed after 24 hours anyway (D6). */
-export async function deleteUploadedPhoto(id: string): Promise<void> {
+/**
+ * True only when the server confirms the photo is gone (deleted now, or
+ * already gone: 404). Any other answer or a network error is false, so the
+ * screen never shows a photo as removed while it may still be stored.
+ * `keepalive` lets the request finish when the screen is being left.
+ */
+export async function deleteUploadedPhoto(id: string, options: { keepalive?: boolean } = {}): Promise<boolean> {
   try {
-    await fetch(`/api/uploads/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await fetch(`/api/uploads/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      keepalive: options.keepalive ?? false,
+    });
+    return response.ok || response.status === 404;
   } catch {
-    // Ignored on purpose; see above.
+    return false;
   }
 }
 

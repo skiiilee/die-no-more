@@ -13,7 +13,7 @@ import styles from "./plants.module.css";
 
 type Item = {
   key: string;
-  status: "preparing" | "uploading" | "ready" | "error";
+  status: "preparing" | "uploading" | "ready" | "deleting" | "error";
   previewUrl: string | null;
   id: string | null;
   message: string | null;
@@ -32,6 +32,7 @@ export const IDENTIFY_MESSAGES: Record<string, string> = {
 };
 
 const UPLOAD_FAILED = "사진을 올리지 못했습니다. 지우고 다시 골라 주세요.";
+export const DELETE_FAILED = "사진을 지우지 못했습니다. 다시 [삭제]를 눌러 주세요.";
 const TOO_MANY = `사진은 ${PHOTO_RULES.maxCount}장까지 올릴 수 있습니다. 나머지는 빼고 올렸습니다.`;
 
 let nextKey = 0;
@@ -43,6 +44,11 @@ let nextKey = 0;
  * this request's consent: before the box is ticked nothing is sent to
  * Pl@ntNet (D5). The box is cleared after every request, so consent is
  * always given again.
+ *
+ * A photo is taken off the list only after the server confirms it is deleted;
+ * [삭제] waits while a photo is still being prepared or uploaded. Leaving the
+ * screen (other than to the results) deletes the uploaded photos, including
+ * ones whose upload finishes after the screen is gone.
  */
 export function PhotoListScreen() {
   const router = useRouter();
@@ -56,6 +62,24 @@ export function PhotoListScreen() {
   const [leaving, setLeaving] = useState(false);
   const started = useRef(false);
   const count = useRef(0);
+  const current = useRef<Item[]>([]);
+  const disposed = useRef(false);
+  const handedOff = useRef(false);
+
+  useEffect(() => {
+    current.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    disposed.current = false;
+    return () => {
+      disposed.current = true;
+      if (handedOff.current) return;
+      for (const item of current.current) {
+        if (item.id) void deleteUploadedPhoto(item.id, { keepalive: true });
+      }
+    };
+  }, []);
 
   useUnsavedChanges(items.length > 0 && !leaving);
 
@@ -82,6 +106,11 @@ export function PhotoListScreen() {
         }
         update(key, { status: "uploading", previewUrl: URL.createObjectURL(prepared.blob) });
         const answer = await uploadPhotoFile(prepared.blob);
+        if (answer.kind === "ok" && disposed.current && !handedOff.current) {
+          // The screen was left while this photo was on its way: nobody will use it.
+          void deleteUploadedPhoto(answer.id, { keepalive: true });
+          return;
+        }
         if (answer.kind === "ok") update(key, { status: "ready", id: answer.id });
         else if (answer.kind === "invalid") update(key, { status: "error", message: answer.message });
         else update(key, { status: "error", message: IDENTIFY_MESSAGES[answer.kind] ?? UPLOAD_FAILED });
@@ -97,16 +126,25 @@ export function PhotoListScreen() {
     if (initial.length > 0) addFiles(initial);
   }, [initial, addFiles]);
 
-  const remove = (item: Item) => {
-    setItems((current) => current.filter((other) => other.key !== item.key));
+  const drop = (item: Item) => {
+    setItems((list) => list.filter((other) => other.key !== item.key));
     count.current -= 1;
     setNotice(null);
     if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    if (item.id) void deleteUploadedPhoto(item.id);
+  };
+
+  const remove = async (item: Item) => {
+    if (!item.id) {
+      drop(item);
+      return;
+    }
+    update(item.key, { status: "deleting", message: null });
+    if (await deleteUploadedPhoto(item.id)) drop(item);
+    else update(item.key, { status: "ready", message: DELETE_FAILED });
   };
 
   const ready = items.filter((item) => item.status === "ready" && item.id);
-  const busy = items.some((item) => item.status === "preparing" || item.status === "uploading");
+  const busy = items.some((item) => item.status !== "ready" && item.status !== "error");
   const canSend = consent && ready.length > 0 && !busy && !sending;
 
   const identify = async () => {
@@ -115,6 +153,7 @@ export function PhotoListScreen() {
     setError(null);
     const answer = await requestIdentification(ready.map((item) => item.id!), consent);
     if (answer.kind === "ok") {
+      handedOff.current = true;
       setLeaving(true);
       router.push(`/plants/new/identify/${answer.sessionId}`);
       return;
@@ -157,13 +196,20 @@ export function PhotoListScreen() {
                 {item.status === "preparing" ? "사진 줄이는 중" : null}
                 {item.status === "uploading" ? "올리는 중" : null}
                 {item.status === "ready" ? "올림" : null}
+                {item.status === "deleting" ? "지우는 중" : null}
+                {item.status === "ready" && item.message ? (
+                  <span role="alert" className={styles.error}>
+                    {" "}
+                    {item.message}
+                  </span>
+                ) : null}
                 {item.status === "error" ? <span className={styles.error}>{item.message}</span> : null}
               </span>
               <button
                 type="button"
                 className={styles.secondary}
-                onClick={() => remove(item)}
-                disabled={sending}
+                onClick={() => void remove(item)}
+                disabled={sending || (item.status !== "ready" && item.status !== "error")}
                 aria-label={`사진 ${index + 1} 삭제`}
               >
                 삭제

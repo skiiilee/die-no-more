@@ -49,6 +49,39 @@ export function isSameOrigin(request: Request): boolean {
   }
 }
 
+/**
+ * The request body, read chunk by chunk and abandoned as soon as it passes
+ * `max` bytes, so a large body never sits in memory whatever Content-Length
+ * says. A body that cannot be read counts as empty.
+ */
+export async function readBodyWithin(request: Request, max: number): Promise<Uint8Array<ArrayBuffer> | "too_large"> {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        await reader.cancel().catch(() => undefined);
+        return "too_large";
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return new Uint8Array(0);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
 const json = (body: unknown, status: number) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 const refused = () => json({ kind: "forbidden" }, 403);
 const signedOut = () => json({ kind: "signed_out" }, 401);
@@ -60,12 +93,18 @@ export async function handleUpload(request: Request): Promise<Response> {
   const user = await signedIn();
   if (!user) return signedOut();
 
-  const declared = Number(request.headers.get("content-length") ?? "0");
-  if (declared > UPLOAD_BODY_MAX) return json({ kind: "invalid", message: UPLOAD_MESSAGES.tooLarge }, 413);
+  const tooLarge = () => json({ kind: "invalid", message: UPLOAD_MESSAGES.tooLarge }, 413);
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > UPLOAD_BODY_MAX) return tooLarge();
+
+  // The header is only a hint (it can be missing or wrong): the cap is applied while reading.
+  const body = await readBodyWithin(request, UPLOAD_BODY_MAX);
+  if (body === "too_large") return tooLarge();
 
   let bytes: Uint8Array | null = null;
   try {
-    const file = (await request.formData()).get("photo");
+    const form = await new Response(body, { headers: { "content-type": request.headers.get("content-type") ?? "" } }).formData();
+    const file = form.get("photo");
     if (file instanceof Blob) bytes = new Uint8Array(await file.arrayBuffer());
   } catch {
     bytes = null;
