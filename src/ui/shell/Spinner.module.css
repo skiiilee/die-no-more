@@ -18,6 +18,23 @@
   color: var(--color-primary);
 }
 
+/* LoadingScreen: spinner and message centred in the content area. */
+.screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: 50vh;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.message {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
