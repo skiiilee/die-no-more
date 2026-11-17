@@ -64,6 +64,10 @@ function Body({ view }: { view: IdentificationView }) {
  * when known, scientific name and Pl@ntNet's reference photo with its credit.
  * The score is not shown as a probability (03 §3-4). The user's own photos
  * are never shown as a candidate's photo. Nothing is added from here.
+ *
+ * [뒤로] returns to S03-P, which shows the same photos again (kept in the
+ * tab) for another try with consent asked again. [다시 검색하기] starts over
+ * on S03 and forgets them (PhotoFlowGuard).
  */
 export function IdentificationResults({ view }: { view: IdentificationView }) {
   return (
@@ -72,7 +76,7 @@ export function IdentificationResults({ view }: { view: IdentificationView }) {
         <h1 id="identify-title" className={styles.title}>
           사진으로 찾은 식물
         </h1>
-        <Link href="/plants/new" className={styles.back}>
+        <Link href="/plants/new/photos" className={styles.back} aria-label="뒤로: 사진 목록">
           뒤로
         </Link>
       </div>

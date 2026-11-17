@@ -5,15 +5,17 @@ import type { IdentificationView } from "@/types/photo";
 import { IdentificationResults } from "./IdentificationResults";
 import { clearKeptPhotos, handOverPhotos, keepPhotos, keptPhotos, pendingPhotos } from "./pending-photos";
 import { IDENTIFY_MESSAGES, PhotoListScreen } from "./PhotoListScreen";
+import { keepsPhotos, PhotoFlowGuard } from "./PhotoFlowGuard";
 import { PhotoScanButton } from "./PhotoScanButton";
 
-const { push, identify, fit } = vi.hoisted(() => ({
+const { push, identify, fit, nav } = vi.hoisted(() => ({
+  nav: { pathname: "/plants/new/photos" },
   push: vi.fn<(href: string) => void>(),
   identify: vi.fn(),
   fit: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }), usePathname: () => nav.pathname }));
 // The browser canvas is not available in jsdom: preparation always succeeds here.
 vi.mock("./photo-prep", () => ({
   prepareForUpload: vi.fn(async (file: File) => ({ ok: true, blob: new Blob([`small ${file.name}`], { type: "image/jpeg" }) })),
@@ -228,5 +230,56 @@ describe("S04-A 사진으로 찾은 식물", () => {
     render(<IdentificationResults view={{ kind: "failed", sessionId: SESSION }} />);
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.getByRole("link", { name: "다시 검색하기" }).getAttribute("href")).toBe("/plants/new");
+  });
+});
+
+describe("S04-A [뒤로] and the kept photos (PR #17 re-review)", () => {
+  const view: IdentificationView = { kind: "completed", sessionId: SESSION, candidates: [] };
+
+  it("[뒤로] goes back to S03-P for another try; [다시 검색하기] starts over on S03", () => {
+    render(<IdentificationResults view={view} />);
+    expect(screen.getByRole("link", { name: "뒤로: 사진 목록" }).getAttribute("href")).toBe("/plants/new/photos");
+    expect(screen.getByRole("link", { name: "다시 검색하기" }).getAttribute("href")).toBe("/plants/new");
+  });
+
+  it("keeps the photos only on S03-P, S04-A and S04-B", () => {
+    for (const path of ["/plants/new/photos", `/plants/new/identify/${SESSION}`, "/plants/new/species/s1"]) {
+      expect(keepsPhotos(path)).toBe(true);
+    }
+    for (const path of ["/plants/new", "/plants/new/manual", "/plants/new/register", "/plants/new/search", "/today", "/plants"]) {
+      expect(keepsPhotos(path)).toBe(false);
+    }
+  });
+
+  it("S03-P → S04-A → S03-P: the same photos are there again", async () => {
+    identify.mockResolvedValue({ kind: "ok", sessionId: SESSION });
+    nav.pathname = "/plants/new/photos";
+    const guard = render(<PhotoFlowGuard />);
+    const first = await openS03P([photo("a.jpg"), photo("b.jpg")]);
+    await sendWithConsent();
+    first.unmount();
+    await settle();
+    nav.pathname = `/plants/new/identify/${SESSION}`;
+    guard.rerender(<PhotoFlowGuard />);
+    nav.pathname = "/plants/new/photos";
+    guard.rerender(<PhotoFlowGuard />);
+    expect(keptPhotos()).toHaveLength(2);
+    render(<PhotoListScreen />);
+    expect(screen.getAllByText("준비됨")).toHaveLength(2);
+  });
+
+  it("S04-A → S04-B keeps them; leaving the flow (S03, S05, another tab) forgets them", () => {
+    for (const leaveTo of ["/plants/new", "/plants/new/register", "/today"]) {
+      keepPhotos([{ file: photo("a.jpg"), blob: new Blob(["a"]) }]);
+      nav.pathname = `/plants/new/identify/${SESSION}`;
+      const guard = render(<PhotoFlowGuard />);
+      nav.pathname = "/plants/new/species/s1";
+      guard.rerender(<PhotoFlowGuard />);
+      expect(keptPhotos()).toHaveLength(1);
+      nav.pathname = leaveTo;
+      guard.rerender(<PhotoFlowGuard />);
+      expect(keptPhotos()).toEqual([]);
+      guard.unmount();
+    }
   });
 });

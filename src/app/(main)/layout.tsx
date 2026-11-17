@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { requireSignedIn } from "@/runtime/session";
 import { AppShell } from "@/ui/shell/AppShell";
+import { PhotoFlowGuard } from "@/ui/plants/PhotoFlowGuard";
 import { ScreenLoading } from "@/ui/shell/ScreenLoading";
 
 /**
@@ -12,6 +13,10 @@ import { ScreenLoading } from "@/ui/shell/ScreenLoading";
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   return (
     <AppShell>
+      {/* Photos kept for a retry are forgotten once the user leaves the photo flow. */}
+      <Suspense fallback={null}>
+        <PhotoFlowGuard />
+      </Suspense>
       <Suspense fallback={<ScreenLoading />}>
         <SignedInGate>{children}</SignedInGate>
       </Suspense>
