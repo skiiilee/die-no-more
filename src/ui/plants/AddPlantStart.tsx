@@ -1,12 +1,13 @@
 import Link from "next/link";
+import { PhotoScanButton } from "./PhotoScanButton";
 import { SpeciesSearchForm } from "./SpeciesSearchForm";
 import styles from "./plants.module.css";
 
 /**
  * S03 식물 추가 (wireframe pages 7–8). Name search and photo scan sit side by
- * side from the start. Search is connected (Perenual and Trefle); the photo
- * scan (Pl@ntNet) comes with the next PR, so it is shown but disabled with a
- * plain note. No popular or recommended list (ADR-0003 D11).
+ * side from the start, and either works without the other: search
+ * (Perenual, Trefle) → S04-A, or [식물 스캔] → photo source dialog → S03-P
+ * (Pl@ntNet). No popular or recommended list (ADR-0003 D11).
  */
 export function AddPlantStart() {
   return (
@@ -23,12 +24,7 @@ export function AddPlantStart() {
 
       <div className={styles.card}>
         <SpeciesSearchForm />
-        <button type="button" className={styles.secondary} disabled aria-describedby="scan-note">
-          식물 스캔
-        </button>
-        <p id="scan-note" className={styles.note}>
-          사진 스캔은 아직 연결 중입니다. 이름으로 검색하거나 직접 입력해 주세요.
-        </p>
+        <PhotoScanButton />
       </div>
 
       <div className={styles.actions}>

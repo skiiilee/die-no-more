@@ -89,5 +89,12 @@ export async function loadSpeciesPreview(deps: PreviewDeps, id: string): Promise
   const record = await deps.species.getRecord(id);
   if (!record) return null;
   const [koreanName, care] = await Promise.all([ensureKoreanName(deps, record), ensureCare(deps, record)]);
-  return { id: record.id, koreanName, scientificName: record.scientificName, imageUrl: record.imageUrl, care };
+  return {
+    id: record.id,
+    koreanName,
+    scientificName: record.scientificName,
+    imageUrl: record.imageUrl,
+    imageCredit: record.imageCredit,
+    care,
+  };
 }

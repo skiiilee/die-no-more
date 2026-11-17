@@ -302,3 +302,62 @@
 .factRow {
   display: contents;
 }
+
+/* Licence credit under a provider photo (Pl@ntNet CC BY-SA). */
+.credit {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* S04-A rank for photo candidates. Order only; no score is shown. */
+.rank {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* S03-P photo list: preview, status, [삭제]. */
+.photoGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.photoItem {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* 촬영/갤러리 선택 모달. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 40%);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(100%, 420px);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+@media (min-width: 768px) {
+  .backdrop {
+    align-items: center;
+  }
+}

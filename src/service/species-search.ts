@@ -61,6 +61,8 @@ export function mergeFound(found: ProviderSpecies[]): FoundSpecies[] {
         perenualId: item.provider === "perenual" ? item.providerId : null,
         trefleId: item.provider === "trefle" ? item.providerId : null,
         imageUrl: item.imageUrl,
+        // Perenual and Trefle search results carry no photo credit.
+        imageCredit: null,
         source: item.provider,
       });
       continue;
@@ -82,6 +84,7 @@ export function toCandidate(record: SpeciesRecord): SpeciesCandidate {
     koreanName: record.koreanName,
     scientificName: record.scientificName,
     imageUrl: record.imageUrl,
+    imageCredit: record.imageCredit,
   };
 }
 

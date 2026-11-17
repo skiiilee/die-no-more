@@ -40,6 +40,8 @@ for (const path of [
   "/plants/new/register?mode=unknown",
   "/plants/new/search?q=ficus",
   "/plants/new/species/10000000-0000-0000-0000-000000000001",
+  "/plants/new/photos",
+  "/plants/new/identify/50000000-0000-0000-0000-000000000001",
 ]) {
   test(`pot registration screens need a session: ${path}`, async ({ page }) => {
     await page.goto(path);
@@ -47,3 +49,10 @@ for (const path of [
     await expect(page.getByLabel("비밀번호")).toBeVisible();
   });
 }
+
+test("the photo API answers 401 JSON without a session, and sends nothing on", async ({ request }) => {
+  const photos = { name: "a.jpg", mimeType: "image/jpeg", buffer: Buffer.from([0xff, 0xd8, 0xff]) };
+  const identify = await request.post("/api/identifications", { multipart: { consent: "true", photos } });
+  expect(identify.status()).toBe(401);
+  expect(await identify.json()).toEqual({ kind: "signed_out" });
+});

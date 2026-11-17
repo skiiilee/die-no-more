@@ -74,6 +74,9 @@ export function SpeciesResults({ outcome }: { outcome: SearchOutcome }) {
                   <span className={candidate.koreanName ? styles.scientificSub : styles.scientificMain}>
                     {candidate.scientificName}
                   </span>
+                  {candidate.imageUrl && candidate.imageCredit ? (
+                    <span className={styles.credit}>사진: {candidate.imageCredit}</span>
+                  ) : null}
                 </span>
                 <Link
                   href={speciesHref(candidate, outcome.query)}

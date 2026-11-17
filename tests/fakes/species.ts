@@ -17,6 +17,7 @@ export function record(overrides: Partial<SpeciesRecord> = {}): SpeciesRecord {
     perenualId: null,
     trefleId: null,
     imageUrl: null,
+    imageCredit: null,
     koreanNameCheckedAt: null,
     careStatus: null,
     ...overrides,
@@ -45,6 +46,8 @@ export function fakeSpeciesStore(
   options: { local?: SpeciesRecord[]; record?: SpeciesRecord | null; care?: PerenualCare | null; dropKeys?: string[] } = {},
 ) {
   let counter = 0;
+  /** Everything saveFound returned, for getRecords. */
+  const saved: SpeciesRecord[] = [];
   const store = {
     searchLocal: vi.fn(async () => options.local ?? []),
     saveFound: vi.fn(async (found: FoundSpecies[]) => {
@@ -54,13 +57,16 @@ export function fakeSpeciesStore(
           id: `20000000-0000-0000-0000-00000000000${counter++}`,
           scientificNameKey: item.scientificNameKey,
           scientificName: item.scientificName,
-          // Like the real store: expiring photo links are not stored.
+          // Like the real store: expiring photo links are not stored, nor their credit.
           imageUrl: isStorableImageUrl(item.imageUrl) ? item.imageUrl : null,
+          imageCredit: isStorableImageUrl(item.imageUrl) ? item.imageCredit : null,
         }),
       );
+      saved.push(...records);
       return { records, dropped: found.length - kept.length };
     }),
     getRecord: vi.fn(async () => (options.record === undefined ? record() : options.record)),
+    getRecords: vi.fn(async (ids: string[]) => saved.filter((item) => ids.includes(item.id))),
     getCare: vi.fn(async () => options.care ?? null),
     saveKoreanName: vi.fn(async () => {}),
     saveCare: vi.fn(async () => {}),

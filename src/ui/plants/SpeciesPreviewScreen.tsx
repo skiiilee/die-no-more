@@ -46,9 +46,18 @@ function CareNote({ care }: { care: SpeciesPreview["care"] }) {
  * returned; empty items say '정보 없음' and nothing is generated (03 §3-6).
  * Nothing is saved as a pot until [이 식물 추가하기] → S05 → [식물 추가하기].
  */
-export function SpeciesPreviewScreen({ preview, query }: { preview: SpeciesPreview; query: string | null }) {
+/** Where S04-B [뒤로] goes: the name search or the photo identification it came from. */
+export type PreviewBack = { kind: "search"; query: string } | { kind: "identify"; sessionId: string } | null;
+
+function backHrefFor(back: PreviewBack): string {
+  if (back?.kind === "search") return `/plants/new/search?${new URLSearchParams({ q: back.query }).toString()}`;
+  if (back?.kind === "identify") return `/plants/new/identify/${back.sessionId}`;
+  return "/plants/new";
+}
+
+export function SpeciesPreviewScreen({ preview, back }: { preview: SpeciesPreview; back: PreviewBack }) {
   const name = preview.koreanName ?? preview.scientificName;
-  const backHref = query ? `/plants/new/search?${new URLSearchParams({ q: query }).toString()}` : "/plants/new";
+  const backHref = backHrefFor(back);
   const addHref = `/plants/new/register?${new URLSearchParams({ mode: "species", species: preview.id }).toString()}`;
 
   return (
@@ -61,7 +70,10 @@ export function SpeciesPreviewScreen({ preview, query }: { preview: SpeciesPrevi
       </div>
 
       <div className={styles.columns}>
-        <SpeciesPhoto url={preview.imageUrl} name={name} size="large" />
+        <div>
+          <SpeciesPhoto url={preview.imageUrl} name={name} size="large" />
+          {preview.imageUrl && preview.imageCredit ? <p className={styles.credit}>사진: {preview.imageCredit}</p> : null}
+        </div>
         <div className={styles.card}>
           <div>
             <h1 id="species-title" className={styles.title}>

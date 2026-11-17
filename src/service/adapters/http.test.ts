@@ -135,3 +135,29 @@ describe("httpsUrl", () => {
     expect(httpsUrl(null)).toBeNull();
   });
 });
+
+describe("httpClient POST (Pl@ntNet photo upload)", () => {
+  it("sends the method and a freshly built form on every attempt, through the gate", async () => {
+    const forms: FormData[] = [];
+    const responses = [503, 200];
+    const fetchImpl = vi.fn(async (_url: string, init: { method: string; body?: FormData }) => {
+      expect(init.method).toBe("POST");
+      forms.push(init.body!);
+      return new Response("{}", { status: responses.shift() ?? 200 });
+    });
+    let now = 0;
+    const client = httpClient({ deadline: 25_000, fetchImpl, now: () => (now += 100) });
+    const { callGate, settled } = gate(5);
+    const build = vi.fn(() => {
+      const form = new FormData();
+      form.append("organs", "auto");
+      return form;
+    });
+    const call = await client.send({ method: "POST", url: "https://example.test/identify", body: build }, callGate);
+    expect(call).toMatchObject({ attempts: 2, result: { kind: "response", status: 200 } });
+    expect(build).toHaveBeenCalledTimes(2);
+    expect(forms[0]).not.toBe(forms[1]);
+    expect(settled).toHaveLength(2);
+  });
+});
+

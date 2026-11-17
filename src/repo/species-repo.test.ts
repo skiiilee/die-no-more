@@ -55,6 +55,7 @@ const FOUND: FoundSpecies = {
   perenualId: 2961,
   trefleId: null,
   imageUrl: SIGNED,
+  imageCredit: null,
   source: "perenual",
 };
 const ROW: Row = {
@@ -67,6 +68,7 @@ const ROW: Row = {
   perenual_id: null,
   trefle_id: 7,
   image_url: null,
+  image_credit: null,
   korean_name_checked_at: null,
   care_status: null,
 };

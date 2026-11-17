@@ -5,6 +5,9 @@
 
 export type SearchProvider = "perenual" | "trefle";
 
+/** Provider that first found a plant DB row (plant_species.source). */
+export type SpeciesSource = SearchProvider | "plantnet";
+
 /** One species as a provider's search returned it, before it is stored. */
 export type ProviderSpecies = {
   provider: SearchProvider;
@@ -28,6 +31,8 @@ export type SpeciesRecord = {
   perenualId: number | null;
   trefleId: number | null;
   imageUrl: string | null;
+  /** Licence credit for imageUrl when the provider gave one (Pl@ntNet). */
+  imageCredit: string | null;
   koreanNameCheckedAt: string | null;
   careStatus: CareStatus | null;
 };
@@ -38,6 +43,7 @@ export type SpeciesCandidate = {
   koreanName: string | null;
   scientificName: string;
   imageUrl: string | null;
+  imageCredit: string | null;
 };
 
 /**
@@ -86,6 +92,7 @@ export type SpeciesPreview = {
   koreanName: string | null;
   scientificName: string;
   imageUrl: string | null;
+  imageCredit: string | null;
   /**
    * available: care facts below come from Perenual.
    * none: Perenual has no care data for this species (outside the free range
@@ -118,8 +125,9 @@ export type FoundSpecies = {
   perenualId: number | null;
   trefleId: number | null;
   imageUrl: string | null;
+  imageCredit: string | null;
   /** Provider that found it first. */
-  source: SearchProvider;
+  source: SpeciesSource;
 };
 
 /** api_usage_logs status. 'reserved' until the attempt ends; it still counts (PR #15 review, item 1). */
