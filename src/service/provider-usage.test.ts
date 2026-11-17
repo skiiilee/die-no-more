@@ -3,13 +3,35 @@ import type { ReserveAnswer, UsageStore } from "@/repo/usage-repo";
 import { httpClient, providerClient } from "./adapters/http";
 import { perenual, perenualUsage } from "./adapters/perenual";
 import { trefle, trefleUsage } from "./adapters/trefle";
-import { kstDayStart, usageGate } from "./provider-usage";
+import { kstDayStart, usageGate, utcDayStart } from "./provider-usage";
 
 describe("kstDayStart (ADR-0004 D5: Perenual and Trefle count per KST day)", () => {
   it("starts the day at 00:00 KST, which is 15:00 UTC the day before", () => {
     expect(kstDayStart(new Date("2026-11-15T10:00:00Z"))).toBe("2026-11-14T15:00:00.000Z");
     expect(kstDayStart(new Date("2026-11-15T15:00:00Z"))).toBe("2026-11-15T15:00:00.000Z");
     expect(kstDayStart(new Date("2026-11-15T14:59:59Z"))).toBe("2026-11-14T15:00:00.000Z");
+  });
+});
+
+describe("utcDayStart (ADR-0004 D5: Pl@ntNet resets at 00:00 UTC = 09:00 KST)", () => {
+  it("starts the day at 00:00 UTC", () => {
+    expect(utcDayStart(new Date("2026-11-17T08:59:59+09:00"))).toBe("2026-11-16T00:00:00.000Z");
+    expect(utcDayStart(new Date("2026-11-17T09:00:00+09:00"))).toBe("2026-11-17T00:00:00.000Z");
+  });
+
+  it("is the day boundary the gate reserves against when given", async () => {
+    const reserve = vi.fn(async (): Promise<ReserveAnswer> => ({ kind: "reserved", id: "r1" }));
+    const usage: UsageStore = { reserve, settle: vi.fn(async () => {}) };
+    const gateFor = usageGate({
+      usage,
+      provider: "plantnet",
+      dailyLimit: 450,
+      classify: () => ({ status: "success", retryAt: null }),
+      dayStart: utcDayStart,
+      now: () => new Date("2026-11-17T05:00:00+09:00"),
+    });
+    await gateFor("identify").open();
+    expect(reserve).toHaveBeenCalledWith("plantnet", "identify", "2026-11-16T00:00:00.000Z", 450);
   });
 });
 

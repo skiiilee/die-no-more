@@ -8,7 +8,9 @@ import type { UsageSettlement } from "./adapters/perenual";
  * sent (reserve_provider_call: counted under a lock, so a racing request
  * cannot take the same last call). If the reservation cannot be written, the
  * call is not sent: going over a free limit is worse than one missed search.
- * Perenual and Trefle document no day boundary, so our cap counts per KST day.
+ * Each provider is counted by its own day boundary (ADR-0004 D5): Pl@ntNet
+ * resets at 00:00 UTC; Perenual and Trefle document none, so our cap counts
+ * per KST day.
  */
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -20,23 +22,32 @@ export function kstDayStart(now: Date): string {
   return new Date(kst - (kst % DAY_MS) - KST_OFFSET_MS).toISOString();
 }
 
+/** Start of the current UTC day as an ISO instant (Pl@ntNet's quota day). */
+export function utcDayStart(now: Date): string {
+  const ms = now.getTime();
+  return new Date(ms - (ms % DAY_MS)).toISOString();
+}
+
 export type GateOptions = {
   usage: UsageStore;
   provider: UsageProvider;
   dailyLimit: number;
   /** How the provider's answer is recorded (perenualUsage, trefleUsage). */
   classify: (result: HttpResult) => UsageSettlement;
+  /** The provider's day boundary. KST day unless the provider defines one. */
+  dayStart?: (now: Date) => string;
   now?: () => Date;
 };
 
 /** A gate per operation name, for one provider. */
 export function usageGate(options: GateOptions): (operation: string) => CallGate {
   const now = options.now ?? (() => new Date());
+  const dayStart = options.dayStart ?? kstDayStart;
   return (operation) => ({
     async open() {
       let answer;
       try {
-        answer = await options.usage.reserve(options.provider, operation, kstDayStart(now()), options.dailyLimit);
+        answer = await options.usage.reserve(options.provider, operation, dayStart(now()), options.dailyLimit);
       } catch {
         return { ok: false, reason: "usage_unavailable" };
       }

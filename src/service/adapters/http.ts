@@ -5,7 +5,8 @@
  * - one retry on timeout, connection error or 5xx, only with ≥ 12 s left.
  * Every attempt, retries included, first passes the call gate (daily cap and
  * provider back-off, see provider-usage.ts); a refused gate sends nothing.
- * URLs carry provider keys, so they are never logged or returned.
+ * URLs carry provider keys, so they are never logged or returned. A POST
+ * (photo upload) follows the same rules; its form is rebuilt per attempt.
  */
 
 export const REQUEST_BUDGET_MS = 25_000;
@@ -29,21 +30,33 @@ export type Ticket = { settle(result: HttpResult): Promise<void> };
 /** Reserves one call before it is sent. */
 export type CallGate = { open(): Promise<{ ok: true; ticket: Ticket } | { ok: false; reason: BlockReason }> };
 
-export type HttpClient = { get(url: string, gate?: CallGate): Promise<HttpCall> };
+/** A request. A POST body is a multipart form (Pl@ntNet photos), rebuilt for each attempt. */
+export type HttpRequest = { method: "GET"; url: string } | { method: "POST"; url: string; body: () => FormData };
 
-/** What adapters use: a client already bound to one provider's gate. */
+export type HttpClient = {
+  get(url: string, gate?: CallGate): Promise<HttpCall>;
+  send(request: HttpRequest, gate?: CallGate): Promise<HttpCall>;
+};
+
+/** What GET adapters use: a client already bound to one provider's gate. */
 export type ProviderClient = { get(url: string, operation: string): Promise<HttpCall> };
 
+/** What upload adapters use (Pl@ntNet): a POST bound to one provider's gate. */
+export type ProviderPostClient = { post(url: string, body: () => FormData, operation: string): Promise<HttpCall> };
+
 type Clock = () => number;
-type FetchLike = (url: string, init: { signal: AbortSignal; headers: Record<string, string> }) => Promise<Response>;
+type FetchInit = { method: string; body?: FormData; signal: AbortSignal; headers: Record<string, string> };
+type FetchLike = (url: string, init: FetchInit) => Promise<Response>;
 
 function retryable(result: HttpResult): boolean {
   return result.kind === "failed" || (result.kind === "response" && result.status >= 500);
 }
 
-async function attempt(fetchImpl: FetchLike, url: string, timeoutMs: number): Promise<HttpResult> {
+async function attempt(fetchImpl: FetchLike, request: HttpRequest, timeoutMs: number): Promise<HttpResult> {
   try {
-    const response = await fetchImpl(url, {
+    const response = await fetchImpl(request.url, {
+      method: request.method,
+      body: request.method === "POST" ? request.body() : undefined,
       signal: AbortSignal.timeout(timeoutMs),
       headers: { accept: "application/json" },
     });
@@ -60,32 +73,38 @@ export function httpClient(options: { deadline: number; fetchImpl?: FetchLike; n
   const now = options.now ?? Date.now;
   const timeLeft = () => options.deadline - now();
 
-  return {
-    async get(url, gate) {
-      let attempts = 0;
-      let result: HttpResult = { kind: "failed", reason: "timeout" };
-      while (attempts < 2) {
-        const timeout = Math.min(ATTEMPT_MAX_MS, timeLeft() - RESERVE_MS);
-        if (timeout <= 0) break;
-        const opened = gate ? await gate.open() : null;
-        if (opened && !opened.ok) {
-          // A refused retry keeps the first attempt's answer.
-          if (attempts === 0) result = { kind: "blocked", reason: opened.reason };
-          break;
-        }
-        attempts += 1;
-        result = await attempt(fetchImpl, url, timeout);
-        if (opened?.ok) await opened.ticket.settle(result);
-        if (!retryable(result) || timeLeft() < RETRY_MIN_LEFT_MS) break;
+  async function send(request: HttpRequest, gate?: CallGate): Promise<HttpCall> {
+    let attempts = 0;
+    let result: HttpResult = { kind: "failed", reason: "timeout" };
+    while (attempts < 2) {
+      const timeout = Math.min(ATTEMPT_MAX_MS, timeLeft() - RESERVE_MS);
+      if (timeout <= 0) break;
+      const opened = gate ? await gate.open() : null;
+      if (opened && !opened.ok) {
+        // A refused retry keeps the first attempt's answer.
+        if (attempts === 0) result = { kind: "blocked", reason: opened.reason };
+        break;
       }
-      return { result, attempts };
-    },
-  };
+      attempts += 1;
+      result = await attempt(fetchImpl, request, timeout);
+      if (opened?.ok) await opened.ticket.settle(result);
+      if (!retryable(result) || timeLeft() < RETRY_MIN_LEFT_MS) break;
+    }
+    return { result, attempts };
+  }
+
+  return { send, get: (url, gate) => send({ method: "GET", url }, gate) };
 }
 
 /** Binds a client to a provider's gate, one gate per operation (for the usage log). */
-export function providerClient(client: HttpClient, gateFor: (operation: string) => CallGate): ProviderClient {
-  return { get: (url, operation) => client.get(url, gateFor(operation)) };
+export function providerClient(
+  client: HttpClient,
+  gateFor: (operation: string) => CallGate,
+): ProviderClient & ProviderPostClient {
+  return {
+    get: (url, operation) => client.get(url, gateFor(operation)),
+    post: (url, body, operation) => client.send({ method: "POST", url, body }, gateFor(operation)),
+  };
 }
 
 /** Parses a JSON body; undefined when it is not a response or not JSON. */

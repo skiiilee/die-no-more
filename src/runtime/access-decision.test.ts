@@ -24,4 +24,9 @@ describe("decideAccess", () => {
   it("allows signed-in users anywhere else", () => {
     expect(decideAccess("/health", "", true)).toEqual({ kind: "allow" });
   });
+
+  it("lets API routes answer signed-out callers themselves (they check the session)", () => {
+    expect(decideAccess("/api/uploads", "", false)).toEqual({ kind: "allow" });
+    expect(decideAccess("/apiary", "", false)).toMatchObject({ kind: "redirect" });
+  });
 });
