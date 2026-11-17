@@ -711,6 +711,43 @@ select throws_ok(
   'usage status is one of the known values'
 );
 
+-- ---------------------------------------------------------------------------
+-- Photo identification (20261117100000_photo_identification.sql)
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
+
+select throws_ok(
+  $$ insert into public.plant_species (scientific_name_key, scientific_name, source, image_credit)
+     values ('credit only', 'Credit only', 'plantnet', 'Someone / Pl@ntNet, cc-by-sa') $$,
+  '23514', null,
+  'a photo credit is never stored without its photo'
+);
+
+select lives_ok(
+  $$ insert into public.plant_species (scientific_name_key, scientific_name, source, image_url, image_credit)
+     values ('monstera adansonii', 'Monstera adansonii', 'plantnet',
+             'https://bs.plantnet.org/image/m/010f', 'Edgardo Barbieri / Pl@ntNet, cc-by-sa') $$,
+  'a Pl@ntNet candidate is stored with its photo and credit'
+);
+
+select lives_ok(
+  $$ insert into public.identification_sessions (id, provider, endpoint, provider_version, status, candidates)
+     values ('60000000-0000-0000-0000-00000000000a', 'plantnet', '/v2/identify/all', '2026-03-20 (7.5)', 'completed',
+             '[{"rank": 1, "score": 0.88, "speciesId": "x", "scientificName": "Monstera deliciosa"}]') $$,
+  'a completed identification keeps endpoint, engine version and ranked candidates'
+);
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
+select is(
+  (select count(*)::int from public.identification_sessions where id = '60000000-0000-0000-0000-00000000000a'),
+  0,
+  'B cannot see A''s identification'
+);
+
 reset role;
 set local role anon;
 select set_config('request.jwt.claims', '{"role": "anon"}', true);

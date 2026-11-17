@@ -21,6 +21,8 @@ export type SpeciesStore = {
   getRecord(id: string): Promise<SpeciesRecord | null>;
   /** Perenual care values stored for the species, or null when none. */
   getCare(id: string): Promise<PerenualCare | null>;
+  /** Rows for these ids (any order); ids not in the plant DB are left out. */
+  getRecords(ids: string[]): Promise<SpeciesRecord[]>;
   /** Records the Korean-name lookup, with or without a name (ADR-0004 D2). */
   saveKoreanName(id: string, answer: { koreanName: string | null; trefleId: number | null }): Promise<void>;
   /** Records the Perenual care lookup and, when available, its values. */
@@ -28,7 +30,7 @@ export type SpeciesStore = {
 };
 
 const COLUMNS =
-  "id, scientific_name_key, scientific_name, common_name_en, korean_name, family, perenual_id, trefle_id, image_url, korean_name_checked_at, care_status";
+  "id, scientific_name_key, scientific_name, common_name_en, korean_name, family, perenual_id, trefle_id, image_url, image_credit, korean_name_checked_at, care_status";
 
 export type Row = {
   id: string;
@@ -40,6 +42,7 @@ export type Row = {
   perenual_id: number | null;
   trefle_id: number | null;
   image_url: string | null;
+  image_credit: string | null;
   korean_name_checked_at: string | null;
   care_status: CareStatus | null;
 };
@@ -55,12 +58,14 @@ function toRecord(row: Row): SpeciesRecord {
     perenualId: row.perenual_id,
     trefleId: row.trefle_id,
     imageUrl: row.image_url,
+    imageCredit: row.image_credit,
     koreanNameCheckedAt: row.korean_name_checked_at,
     careStatus: row.care_status,
   };
 }
 
 export function insertRow(found: FoundSpecies) {
+  const storable = isStorableImageUrl(found.imageUrl);
   return {
     scientific_name_key: found.scientificNameKey,
     scientific_name: found.scientificName,
@@ -68,7 +73,9 @@ export function insertRow(found: FoundSpecies) {
     family: found.family,
     perenual_id: found.perenualId,
     trefle_id: found.trefleId,
-    image_url: isStorableImageUrl(found.imageUrl) ? found.imageUrl : null,
+    image_url: storable ? found.imageUrl : null,
+    // A credit belongs to its photo: stored only with it.
+    image_credit: storable ? found.imageCredit : null,
     source: found.source,
   };
 }
@@ -78,7 +85,10 @@ export function missingFields(row: Row, found: FoundSpecies): Partial<Row> {
   const update: Partial<Row> = {};
   if (row.perenual_id === null && found.perenualId !== null) update.perenual_id = found.perenualId;
   if (row.trefle_id === null && found.trefleId !== null) update.trefle_id = found.trefleId;
-  if (row.image_url === null && isStorableImageUrl(found.imageUrl)) update.image_url = found.imageUrl;
+  if (row.image_url === null && isStorableImageUrl(found.imageUrl)) {
+    update.image_url = found.imageUrl;
+    update.image_credit = found.imageCredit;
+  }
   if (row.common_name_en === null && found.commonNameEn !== null) update.common_name_en = found.commonNameEn;
   if (row.family === null && found.family !== null) update.family = found.family;
   return update;
@@ -172,6 +182,13 @@ export function supabaseSpeciesStore(client: SupabaseServerClient): SpeciesStore
       const { data, error } = await client.from("plant_species").select(COLUMNS).eq("id", id).maybeSingle();
       if (error) throw new PlantStoreError("getRecord", { cause: error });
       return data ? toRecord(data as Row) : null;
+    },
+
+    async getRecords(ids) {
+      if (ids.length === 0) return [];
+      const { data, error } = await client.from("plant_species").select(COLUMNS).in("id", ids);
+      if (error || !data) throw new PlantStoreError("getRecords", { cause: error });
+      return (data as Row[]).map(toRecord);
     },
 
     async getCare(id) {

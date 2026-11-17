@@ -19,8 +19,8 @@ describe("S04-A 검색 결과", () => {
           partial: false,
           dropped: false,
           candidates: [
-            { id: ID, koreanName: "고무나무", scientificName: "Ficus elastica", imageUrl: "https://example.test/f.jpg" },
-            { id: "x2", koreanName: null, scientificName: "Ficus lyrata", imageUrl: null },
+            { id: ID, koreanName: "고무나무", scientificName: "Ficus elastica", imageUrl: "https://example.test/f.jpg", imageCredit: null },
+            { id: "x2", koreanName: null, scientificName: "Ficus lyrata", imageUrl: null, imageCredit: null },
           ],
         }}
       />,
@@ -42,7 +42,7 @@ describe("S04-A 검색 결과", () => {
           from: "providers",
           partial: false,
           dropped: true,
-          candidates: [{ id: ID, koreanName: null, scientificName: "Ficus elastica", imageUrl: null }],
+          candidates: [{ id: ID, koreanName: null, scientificName: "Ficus elastica", imageUrl: null, imageCredit: null }],
         }}
       />,
     );
@@ -66,12 +66,13 @@ describe("S04-B 식물 정보 확인", () => {
   it("shows provider care values and '정보 없음' for the rest, then goes to S05 for this species", () => {
     render(
       <SpeciesPreviewScreen
-        query="ficus"
+        back={{ kind: "search", query: "ficus" }}
         preview={{
           id: ID,
           koreanName: "고무나무",
           scientificName: "Ficus elastica",
           imageUrl: null,
+          imageCredit: null,
           care: {
             status: "available",
             facts: {
@@ -99,13 +100,40 @@ describe("S04-B 식물 정보 확인", () => {
   it("says when the species has no care data, without inventing any", () => {
     render(
       <SpeciesPreviewScreen
-        query={null}
-        preview={{ id: ID, koreanName: null, scientificName: "Monstera deliciosa", imageUrl: null, care: { status: "none" } }}
+        back={null}
+        preview={{
+          id: ID,
+          koreanName: null,
+          scientificName: "Monstera deliciosa",
+          imageUrl: null,
+          imageCredit: null,
+          care: { status: "none" },
+        }}
       />,
     );
     expect(screen.getByRole("heading", { level: 1, name: "Monstera deliciosa" })).toBeTruthy();
     expect(screen.getByText(/이 식물의 관리 정보가 없습니다/)).toBeTruthy();
     expect(screen.getAllByText("정보 없음")).toHaveLength(5);
     expect(screen.getByRole("link", { name: "뒤로" }).getAttribute("href")).toBe("/plants/new");
+  });
+
+  it("returns to the photo results it came from and credits the Pl@ntNet photo", () => {
+    render(
+      <SpeciesPreviewScreen
+        back={{ kind: "identify", sessionId: "30000000-0000-0000-0000-000000000003" }}
+        preview={{
+          id: ID,
+          koreanName: null,
+          scientificName: "Monstera deliciosa",
+          imageUrl: "https://bs.plantnet.org/image/m/abc",
+          imageCredit: "Soynano Gallego / Pl@ntNet, cc-by-sa",
+          care: { status: "none" },
+        }}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "뒤로" }).getAttribute("href")).toBe(
+      "/plants/new/identify/30000000-0000-0000-0000-000000000003",
+    );
+    expect(screen.getByText("사진: Soynano Gallego / Pl@ntNet, cc-by-sa")).toBeTruthy();
   });
 });
