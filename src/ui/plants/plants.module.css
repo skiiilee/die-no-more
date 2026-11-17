@@ -240,6 +240,28 @@
   flex: 1 1 220px;
 }
 
+/* Spinner and "검색 중…" side by side inside the button. */
+.busy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Under the search box while results load: a large spinner and the message, centred on their own row. */
+.searchStatus {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.searchStatus p {
+  margin: 0;
+}
+
 /* S04-A candidate row: photo, names, [보기]. */
 .candidate {
   display: grid;

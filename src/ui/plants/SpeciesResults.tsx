@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { LinkPending } from "./LinkPending";
+import { HiddenWhileSearching, SearchPendingProvider } from "./SearchPending";
 import type { SearchOutcome, SpeciesCandidate } from "@/types/species";
 import { SpeciesPhoto } from "./SpeciesPhoto";
 import { SpeciesSearchForm } from "./SpeciesSearchForm";
@@ -45,7 +47,8 @@ function PartialNote() {
 /**
  * S04-A 검색 결과 (wireframe pages 11–12). Korean name when known, scientific
  * name always, and the provider's reference photo only when it gave one. A
- * result opens S04-B; nothing is added to my plants from here.
+ * result opens S04-B; nothing is added to my plants from here. While a new
+ * search from the box above is running, these results are hidden.
  */
 export function SpeciesResults({ outcome }: { outcome: SearchOutcome }) {
   return (
@@ -59,40 +62,45 @@ export function SpeciesResults({ outcome }: { outcome: SearchOutcome }) {
         </Link>
       </div>
 
-      <SpeciesSearchForm query={outcome.query} />
+      <SearchPendingProvider>
+        <SpeciesSearchForm query={outcome.query} />
 
-      {outcome.kind === "results" ? (
-        <>
-          {outcome.partial ? <PartialNote /> : null}
-          {outcome.dropped ? <p className={styles.note}>일부 결과를 저장하지 못해 목록에서 뺐습니다.</p> : null}
-          <ul className={styles.list} aria-label="검색된 식물">
-            {outcome.candidates.map((candidate) => (
-              <li key={candidate.id} className={styles.candidate}>
-                <SpeciesPhoto url={candidate.imageUrl} name={candidate.koreanName ?? candidate.scientificName} size="small" />
-                <span className={styles.candidateNames}>
-                  {candidate.koreanName ? <span className={styles.potName}>{candidate.koreanName}</span> : null}
-                  <span className={candidate.koreanName ? styles.scientificSub : styles.scientificMain}>
-                    {candidate.scientificName}
-                  </span>
-                  {candidate.imageUrl && candidate.imageCredit ? (
-                    <span className={styles.credit}>사진: {candidate.imageCredit}</span>
-                  ) : null}
-                </span>
-                <Link
-                  href={speciesHref(candidate, outcome.query)}
-                  className={styles.secondary}
-                  aria-label={`${candidate.koreanName ?? candidate.scientificName} 보기`}
-                >
-                  보기
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <p className={styles.note}>검색 자료: Perenual, Trefle</p>
-        </>
-      ) : (
-        <Message outcome={outcome} />
-      )}
+        <HiddenWhileSearching>
+          {outcome.kind === "results" ? (
+            <>
+              {outcome.partial ? <PartialNote /> : null}
+              {outcome.dropped ? <p className={styles.note}>일부 결과를 저장하지 못해 목록에서 뺐습니다.</p> : null}
+              <ul className={styles.list} aria-label="검색된 식물">
+                {outcome.candidates.map((candidate) => (
+                  <li key={candidate.id} className={styles.candidate}>
+                    <SpeciesPhoto url={candidate.imageUrl} name={candidate.koreanName ?? candidate.scientificName} size="small" />
+                    <span className={styles.candidateNames}>
+                      {candidate.koreanName ? <span className={styles.potName}>{candidate.koreanName}</span> : null}
+                      <span className={candidate.koreanName ? styles.scientificSub : styles.scientificMain}>
+                        {candidate.scientificName}
+                      </span>
+                      {candidate.imageUrl && candidate.imageCredit ? (
+                        <span className={styles.credit}>사진: {candidate.imageCredit}</span>
+                      ) : null}
+                    </span>
+                    <Link
+                      href={speciesHref(candidate, outcome.query)}
+                      className={styles.secondary}
+                      aria-label={`${candidate.koreanName ?? candidate.scientificName} 보기`}
+                    >
+                      보기
+                      <LinkPending />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <p className={styles.note}>검색 자료: Perenual, Trefle</p>
+            </>
+          ) : (
+            <Message outcome={outcome} />
+          )}
+        </HiddenWhileSearching>
+      </SearchPendingProvider>
 
       <div className={styles.actions}>
         <Link href="/plants/new/manual" className={styles.secondary}>

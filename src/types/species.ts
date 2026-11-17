@@ -147,3 +147,6 @@ export function isStorableImageUrl(url: string | null): url is string {
     return false;
   }
 }
+
+/** Longest name search query (S03, S04-A). Shared by the search box and the server check. */
+export const MAX_QUERY_LENGTH = 60;

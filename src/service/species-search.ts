@@ -2,6 +2,7 @@ import { PlantStoreError } from "@/repo/plant-repo";
 import type { SpeciesStore } from "@/repo/species-repo";
 import {
   isStorableImageUrl,
+  MAX_QUERY_LENGTH,
   type FoundSpecies,
   type ProviderSpecies,
   type SearchOutcome,
@@ -23,7 +24,7 @@ import { cleanText } from "./plant-registration";
  * client (provider-usage.ts), so this file never counts calls itself.
  */
 
-export const MAX_QUERY_LENGTH = 60;
+export { MAX_QUERY_LENGTH };
 const MAX_CANDIDATES = 20;
 
 export type SearchDeps = {

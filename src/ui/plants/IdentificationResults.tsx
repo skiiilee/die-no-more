@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPending } from "./LinkPending";
 import type { IdentificationView } from "@/types/photo";
 import { SpeciesPhoto } from "./SpeciesPhoto";
 import styles from "./plants.module.css";
@@ -49,6 +50,7 @@ function Body({ view }: { view: IdentificationView }) {
               </span>
               <Link href={speciesHref(candidate.speciesId, view.sessionId)} className={styles.secondary} aria-label={`${name} 보기`}>
                 보기
+                <LinkPending />
               </Link>
             </li>
           );
