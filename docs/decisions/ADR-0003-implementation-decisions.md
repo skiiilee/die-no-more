@@ -1,6 +1,6 @@
 # ADR-0003: 구현 착수를 위한 미결정 사항 일괄 확정
 
-Status: Accepted (사용자가 Claude에게 결정 위임, 2026-11-12)
+Status: Accepted (사용자가 Claude에게 결정 위임, 2026-11-12). D8의 집계 기준은 [ADR-0004](ADR-0004-translation-and-quota.md) D5로 보완됨: Pl@ntNet은 UTC 날짜, 제공자가 알려 주는 남은 횟수·재개 시각 우선, Perenual·Trefle은 KST 날짜 상한 유지.
 Date: 2026-11-12
 Related: ADR-0001, ADR-0002, `docs/stage2/*`, `docs/08-functional-review.md` §6
 

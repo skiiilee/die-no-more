@@ -1,6 +1,6 @@
 # ADR-0002: Hosting, layers and documentation checks
 
-Status: Accepted (user decision)
+Status: Accepted (user decision). Item 5 frequency is set by [ADR-0003](ADR-0003-implementation-decisions.md) D19 (weekly, Monday 08:40 KST).
 Date: 2026-11-11
 Related: ADR-0001, `docs/03-architecture.md`, `docs/04-api-design.md`, `docs/08-functional-review.md` §1
 

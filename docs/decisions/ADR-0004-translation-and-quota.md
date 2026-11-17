@@ -51,10 +51,11 @@ Related: ADR-0003 D8, `docs/04-api-design.md`, `docs/stage2/03-functional-specif
 - 화면에 재개 시각을 안내할 때는 제공자 기준 시각을 한국 시각으로 바꿔 보여준다. 예: Pl@ntNet은 "오전 9시 이후 다시 시도".
 
 ## Consequences
-- stage2 문서의 "한국어 이름은 Google Cloud Translation" 규칙과 ADR-0003 D8의 "KST 날짜 기준 집계"는 이 ADR로 대체된다. 나머지 ADR-0003 결정은 그대로다.
-- DB: `api_usage_logs.provider` 허용 값의 `google_translate`를 `azure_translator`로 바꾸는 마이그레이션이 필요하다. 다음 구현 PR에서 추가한다(초기 마이그레이션은 이미 병합됨).
+- stage2 문서의 "한국어 이름은 Google Cloud Translation" 규칙은 이 ADR로 대체된다. ADR-0003 D8의 "KST 날짜 기준 집계"는 D5로 보완된다: Pl@ntNet은 UTC 날짜로 세고, 제공자가 알려 주는 남은 횟수·재개 시각을 우선하며, Perenual·Trefle은 KST 날짜 상한을 유지한다. 나머지 ADR-0003 결정은 그대로다.
+- DB: `api_usage_logs.provider` 허용 값의 `google_translate`를 `azure_translator`로 바꾸는 마이그레이션이 필요하다. `supabase/migrations/20261113090000_azure_translator_provider.sql`로 추가했다(완료).
 - 번역 연결 전에는 Trefle에 한국어 이름이 없는 종이 학명으로 보이고, 건강 점검 설명이 영어로 보인다.
 - 사용자: Google 번역 키는 더 쓰지 않으므로 `.env.local`에서 지우고 Google Cloud 콘솔에서 키를 삭제하거나 사용 중지할 수 있다.
 
 ## 변경 기록
 - 2026-11-15 (사용자 결정, PR #15): 번역 대상에 S04-B의 짧은 식물 설명을 추가했다. 번역 연결 전과 실패 시에는 영어 원문을 보여준다. 관리 값 표에 없는 Perenual 값은 영어 그대로 보여준다.
+- 2026-11-16 (주간 문서 점검, PR #16): Consequences의 D8 문장을 D5 내용에 맞게 좁혔다. D8 전체가 아니라 Pl@ntNet의 날짜 경계와 제공자 응답 우선 규칙만 바뀌며, Perenual·Trefle의 KST 날짜 상한은 그대로다. 결정 내용 변경은 없다.
