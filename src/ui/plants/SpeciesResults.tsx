@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LinkPending } from "./LinkPending";
 import type { SearchOutcome, SpeciesCandidate } from "@/types/species";
 import { SpeciesPhoto } from "./SpeciesPhoto";
 import { SpeciesSearchForm } from "./SpeciesSearchForm";
@@ -84,6 +85,7 @@ export function SpeciesResults({ outcome }: { outcome: SearchOutcome }) {
                   aria-label={`${candidate.koreanName ?? candidate.scientificName} 보기`}
                 >
                   보기
+                  <LinkPending />
                 </Link>
               </li>
             ))}
