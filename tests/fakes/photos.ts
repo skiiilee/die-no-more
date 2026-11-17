@@ -1,27 +1,20 @@
 import { vi } from "vitest";
 import type { IdentificationStore, SessionStatus } from "@/repo/identification-repo";
-import type { PhotoStore } from "@/repo/photo-repo";
+import type { ImageProcessor } from "@/service/adapters/image";
 import type { IdentifyResult, PlantnetAdapter } from "@/service/adapters/plantnet";
 import type { StoredCandidate } from "@/types/photo";
 
-/** Test doubles for photo upload and identification. */
+/** Test doubles for photo identification. */
 
-export function fakePhotoStore(options: { photos?: Record<string, Uint8Array>; failRead?: boolean } = {}) {
-  const photos = new Map(Object.entries(options.photos ?? {}));
-  let counter = 0;
+/** Re-encoding stand-in: marks each photo as cleaned so tests can tell. */
+export function fakeImageProcessor(options: { unreadable?: boolean } = {}) {
   return {
-    saveUnattached: vi.fn(async (bytes: Uint8Array) => {
-      const id = `40000000-0000-0000-0000-00000000000${counter++}`;
-      photos.set(id, bytes);
-      return { id };
-    }),
-    deleteUnattached: vi.fn(async (id: string) => photos.delete(id)),
-    readIdentificationPhotos: vi.fn(async (ids: string[]) => {
-      if (options.failRead) throw new Error("storage down");
-      return ids.every((id) => photos.has(id)) ? ids.map((id) => photos.get(id)!) : null;
-    }),
-    removeUnattachedBefore: vi.fn(async () => 0),
-  } satisfies PhotoStore;
+    toCleanJpeg: vi.fn(async (bytes: Uint8Array) =>
+      options.unreadable
+        ? { ok: false as const }
+        : { ok: true as const, bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xdb, ...bytes.slice(3)]) },
+    ),
+  } satisfies ImageProcessor;
 }
 
 export function fakeSessions(options: { failCreate?: boolean; failComplete?: boolean } = {}) {

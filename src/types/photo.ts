@@ -1,7 +1,9 @@
 /**
- * Photo upload and photo identification shapes (S03 → S03-P → S04-A),
- * ADR-0003 D4–D7. Shared by the browser (checks before upload) and the server
- * (checks again; the server result is what counts).
+ * Photo identification shapes (S03 → S03-P → S04-A), ADR-0003 D4–D7.
+ * Identification photos stay in the browser tab and travel only inside the
+ * identification request; the server cleans them, sends them to Pl@ntNet and
+ * keeps nothing (D6, changed 2026-11-18). Shared by the browser (checks
+ * before sending) and the server (checks again; its result is what counts).
  */
 
 export const PHOTO_RULES = {
@@ -9,27 +11,27 @@ export const PHOTO_RULES = {
   maxCount: 5,
   /** Original file picked in the browser (D4). */
   maxOriginalBytes: 15 * 1024 * 1024,
-  /** File after browser resizing, and after server re-encoding (D4, bucket limit). */
+  /** One photo after browser resizing, and after server re-encoding (D4). */
   maxUploadBytes: 3 * 1024 * 1024,
+  /**
+   * All photos of one identification request together. Vercel functions take
+   * request bodies up to 4.5 MB; this leaves room for the multipart envelope.
+   */
+  maxRequestBytes: 4 * 1024 * 1024,
   /** Long side after resizing (D4). */
   longSide: 1600,
   /** JPEG quality used for re-encoding (D4). */
   jpegQuality: 0.85,
-  /** Unattached photos are removed after this long (D6). */
-  unattachedLifetimeMs: 24 * 60 * 60 * 1000,
 } as const;
 
 /** Types the browser may pick. HEIC only when the browser can decode it (D4). */
 export const PICKABLE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"] as const;
 
-/** POST /api/uploads answer. */
-export type UploadAnswer = { kind: "ok"; id: string } | { kind: "invalid"; message: string } | { kind: "failed" };
-
 /**
  * POST /api/identifications answer.
  * - ok: candidates (possibly none) are stored in the session; open S04-A.
+ * - invalid: wrong number of photos, or a photo that is not a usable image (message says which).
  * - consent_required: the request did not carry this request's consent (D5); nothing was sent.
- * - photos_missing: a photo was deleted or expired (D6); pick photos again.
  * - quota: Pl@ntNet's daily limit (ours or theirs) is used up; resets 09:00 KST (ADR-0004 D5).
  * - rejected: Pl@ntNet refused the photos as images.
  * - unavailable: Pl@ntNet could not be reached or is not configured.
@@ -39,7 +41,6 @@ export type IdentifyAnswer =
   | { kind: "ok"; sessionId: string }
   | { kind: "invalid"; message: string }
   | { kind: "consent_required" }
-  | { kind: "photos_missing" }
   | { kind: "quota" }
   | { kind: "rejected" }
   | { kind: "unavailable" }

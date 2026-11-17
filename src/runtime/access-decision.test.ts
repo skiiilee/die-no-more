@@ -26,7 +26,7 @@ describe("decideAccess", () => {
   });
 
   it("lets API routes answer signed-out callers themselves (they check the session)", () => {
-    expect(decideAccess("/api/uploads", "", false)).toEqual({ kind: "allow" });
+    expect(decideAccess("/api/identifications", "", false)).toEqual({ kind: "allow" });
     expect(decideAccess("/apiary", "", false)).toMatchObject({ kind: "redirect" });
   });
 });

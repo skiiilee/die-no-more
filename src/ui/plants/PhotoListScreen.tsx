@@ -5,24 +5,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PHOTO_RULES } from "@/types/photo";
 import { GuardedLink } from "@/ui/shell/GuardedLink";
 import { useUnsavedChanges } from "@/ui/shell/unsaved-changes";
-import { clearPendingPhotos, pendingPhotos } from "./pending-photos";
-import { deleteUploadedPhoto, requestIdentification, uploadPhotoFile } from "./photo-client";
-import { prepareForUpload } from "./photo-prep";
+import { clearKeptPhotos, clearPendingPhotos, keepPhotos, keptPhotos, pendingPhotos } from "./pending-photos";
+import { requestIdentification } from "./photo-client";
+import { fitRequest, prepareForUpload } from "./photo-prep";
 import { PhotoSourceDialog } from "./PhotoSourceDialog";
 import styles from "./plants.module.css";
 
 type Item = {
   key: string;
-  status: "preparing" | "uploading" | "ready" | "deleting" | "error";
+  file: File;
+  status: "preparing" | "ready" | "error";
+  blob: Blob | null;
   previewUrl: string | null;
-  id: string | null;
   message: string | null;
 };
 
 export const IDENTIFY_MESSAGES: Record<string, string> = {
   consent_required: "Pl@ntNet 사진 전송에 동의해야 식물을 찾을 수 있습니다.",
   invalid: `사진을 1장에서 ${PHOTO_RULES.maxCount}장까지 골라 주세요.`,
-  photos_missing: "올린 사진을 찾지 못했습니다. 사진을 지우고 다시 골라 주세요.",
   quota: "오늘은 사진으로 식물 찾기를 더 이상 이용할 수 없습니다. 오전 9시 이후 다시 시도하거나 이름으로 검색해 주세요.",
   rejected: "사진을 분석하지 못했습니다. 다른 사진으로 다시 시도해 주세요.",
   unavailable: "지금은 사진 식별에 연결할 수 없습니다. 잠시 후 다시 시도하거나 이름으로 검색해 주세요.",
@@ -31,29 +31,41 @@ export const IDENTIFY_MESSAGES: Record<string, string> = {
   network: "연결이 끊겼습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.",
 };
 
-const UPLOAD_FAILED = "사진을 올리지 못했습니다. 지우고 다시 골라 주세요.";
-export const DELETE_FAILED = "사진을 지우지 못했습니다. 다시 [삭제]를 눌러 주세요.";
-const TOO_MANY = `사진은 ${PHOTO_RULES.maxCount}장까지 올릴 수 있습니다. 나머지는 빼고 올렸습니다.`;
+const TOO_MANY = `사진은 ${PHOTO_RULES.maxCount}장까지 고를 수 있습니다. 나머지는 뺐습니다.`;
 
 let nextKey = 0;
 
+/** Back from S04-A: the photos sent last time, ready for another try. Empty when S03 handed over new files. */
+function restoreKept(): Item[] {
+  if (pendingPhotos().length > 0) return [];
+  return keptPhotos()
+    .slice(0, PHOTO_RULES.maxCount)
+    .map((photo) => ({
+      key: `photo-${nextKey++}`,
+      file: photo.file,
+      status: "ready",
+      blob: photo.blob,
+      previewUrl: URL.createObjectURL(photo.blob),
+      message: null,
+    }));
+}
+
 /**
  * S03-P 업로드한 사진 (wireframe 02 §S03-P, ADR-0003 D4–D6). Each picked photo
- * is resized in the browser and uploaded at once; the list shows the user's
- * own photos only. [사진으로 식물 찾기] needs at least one uploaded photo and
- * this request's consent: before the box is ticked nothing is sent to
- * Pl@ntNet (D5). The box is cleared after every request, so consent is
+ * is resized in the browser and kept in this tab only; nothing leaves the
+ * device until [사진으로 식물 찾기]. That button needs at least one prepared
+ * photo and this request's consent: before the box is ticked nothing is sent
+ * to Pl@ntNet (D5). The box is cleared after every request, so consent is
  * always given again.
  *
- * A photo is taken off the list only after the server confirms it is deleted;
- * [삭제] waits while a photo is still being prepared or uploaded. Leaving the
- * screen (other than to the results) deletes the uploaded photos, including
- * ones whose upload finishes after the screen is gone.
+ * The photos sent are kept in the tab, so coming back from S04-A shows them
+ * again. Leaving any other way forgets them. The server never stores them
+ * (D6, changed 2026-11-18).
  */
 export function PhotoListScreen() {
   const router = useRouter();
   const [initial] = useState(pendingPhotos);
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<Item[]>(restoreKept);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [consent, setConsent] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -61,62 +73,57 @@ export function PhotoListScreen() {
   const [sending, setSending] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const started = useRef(false);
-  const count = useRef(0);
+  const count = useRef(items.length);
   const current = useRef<Item[]>([]);
   const disposed = useRef(false);
   const handedOff = useRef(false);
+
+  useUnsavedChanges(items.length > 0 && !leaving);
 
   useEffect(() => {
     current.current = items;
   }, [items]);
 
+  // Previews are released and the photos forgotten when the screen is really
+  // gone. Checked a moment later, because React runs effects twice in
+  // development and the second run must keep everything.
   useEffect(() => {
     disposed.current = false;
     return () => {
       disposed.current = true;
-      if (handedOff.current) return;
-      for (const item of current.current) {
-        if (item.id) void deleteUploadedPhoto(item.id, { keepalive: true });
-      }
+      setTimeout(() => {
+        if (!disposed.current) return;
+        for (const item of current.current) if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+        if (!handedOff.current) clearKeptPhotos();
+      }, 0);
     };
   }, []);
 
-  useUnsavedChanges(items.length > 0 && !leaving);
-
   const update = useCallback(
     (key: string, change: Partial<Item>) =>
-      setItems((current) => current.map((item) => (item.key === key ? { ...item, ...change } : item))),
+      setItems((list) => list.map((item) => (item.key === key ? { ...item, ...change } : item))),
     [],
   );
 
-  const addFiles = useCallback((files: File[]) => {
-    const room = PHOTO_RULES.maxCount - count.current;
-    const accepted = files.slice(0, Math.max(0, room));
-    setNotice(files.length > accepted.length ? TOO_MANY : null);
-    count.current += accepted.length;
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const room = PHOTO_RULES.maxCount - count.current;
+      const accepted = files.slice(0, Math.max(0, room));
+      setNotice(files.length > accepted.length ? TOO_MANY : null);
+      count.current += accepted.length;
 
-    for (const file of accepted) {
-      const key = `photo-${nextKey++}`;
-      setItems((current) => [...current, { key, status: "preparing", previewUrl: null, id: null, message: null }]);
-      void (async () => {
-        const prepared = await prepareForUpload(file);
-        if (!prepared.ok) {
-          update(key, { status: "error", message: prepared.message });
-          return;
-        }
-        update(key, { status: "uploading", previewUrl: URL.createObjectURL(prepared.blob) });
-        const answer = await uploadPhotoFile(prepared.blob);
-        if (answer.kind === "ok" && disposed.current && !handedOff.current) {
-          // The screen was left while this photo was on its way: nobody will use it.
-          void deleteUploadedPhoto(answer.id, { keepalive: true });
-          return;
-        }
-        if (answer.kind === "ok") update(key, { status: "ready", id: answer.id });
-        else if (answer.kind === "invalid") update(key, { status: "error", message: answer.message });
-        else update(key, { status: "error", message: IDENTIFY_MESSAGES[answer.kind] ?? UPLOAD_FAILED });
-      })();
-    }
-  }, [update]);
+      for (const file of accepted) {
+        const key = `photo-${nextKey++}`;
+        setItems((list) => [...list, { key, file, status: "preparing", blob: null, previewUrl: null, message: null }]);
+        void (async () => {
+          const prepared = await prepareForUpload(file);
+          if (!prepared.ok) update(key, { status: "error", message: prepared.message });
+          else update(key, { status: "ready", blob: prepared.blob, previewUrl: URL.createObjectURL(prepared.blob) });
+        })();
+      }
+    },
+    [update],
+  );
 
   useEffect(() => {
     clearPendingPhotos();
@@ -126,41 +133,37 @@ export function PhotoListScreen() {
     if (initial.length > 0) addFiles(initial);
   }, [initial, addFiles]);
 
-  const drop = (item: Item) => {
+  const remove = (item: Item) => {
     setItems((list) => list.filter((other) => other.key !== item.key));
     count.current -= 1;
     setNotice(null);
     if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
   };
 
-  const remove = async (item: Item) => {
-    if (!item.id) {
-      drop(item);
-      return;
-    }
-    update(item.key, { status: "deleting", message: null });
-    if (await deleteUploadedPhoto(item.id)) drop(item);
-    else update(item.key, { status: "ready", message: DELETE_FAILED });
-  };
-
-  const ready = items.filter((item) => item.status === "ready" && item.id);
-  const busy = items.some((item) => item.status !== "ready" && item.status !== "error");
+  const ready = items.filter((item): item is Item & { blob: Blob } => item.status === "ready" && item.blob !== null);
+  const busy = items.some((item) => item.status === "preparing");
   const canSend = consent && ready.length > 0 && !busy && !sending;
 
   const identify = async () => {
     if (!canSend) return;
     setSending(true);
     setError(null);
-    const answer = await requestIdentification(ready.map((item) => item.id!), consent);
+    const fitted = await fitRequest(ready.map((item) => ({ file: item.file, blob: item.blob })));
+    const answer = fitted.ok
+      ? await requestIdentification(fitted.blobs, consent)
+      : ({ kind: "invalid", message: fitted.message } as const);
     if (answer.kind === "ok") {
       handedOff.current = true;
+      keepPhotos(ready.map((item) => ({ file: item.file, blob: item.blob })));
       setLeaving(true);
       router.push(`/plants/new/identify/${answer.sessionId}`);
       return;
     }
     setSending(false);
     setConsent(false);
-    setError(IDENTIFY_MESSAGES[answer.kind] ?? IDENTIFY_MESSAGES.failed);
+    setError(
+      answer.kind === "invalid" ? answer.message : (IDENTIFY_MESSAGES[answer.kind] ?? IDENTIFY_MESSAGES.failed),
+    );
   };
 
   const closeDialog = useCallback(() => setDialogOpen(false), []);
@@ -178,15 +181,15 @@ export function PhotoListScreen() {
 
       <div className={styles.card}>
         <p className={styles.lead}>
-          식물 한 그루의 사진을 1~{PHOTO_RULES.maxCount}장 올려 주세요. 잎, 꽃, 열매가 잘 보이면 더 정확합니다.
+          식물 한 그루의 사진을 1~{PHOTO_RULES.maxCount}장 골라 주세요. 잎, 꽃, 열매가 잘 보이면 더 정확합니다.
         </p>
-        {items.length === 0 ? <p className={styles.note}>아직 올린 사진이 없습니다.</p> : null}
-        <ul className={styles.photoGrid} aria-label="올린 사진">
+        {items.length === 0 ? <p className={styles.note}>아직 고른 사진이 없습니다.</p> : null}
+        <ul className={styles.photoGrid} aria-label="고른 사진">
           {items.map((item, index) => (
             <li key={item.key} className={styles.photoItem}>
               {item.previewUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element -- local preview of the user's own photo
-                <img src={item.previewUrl} alt={`올린 사진 ${index + 1}`} className={styles.thumb} />
+                <img src={item.previewUrl} alt={`고른 사진 ${index + 1}`} className={styles.thumb} />
               ) : (
                 <span className={`${styles.thumb} ${styles.noPhoto}`} role="img" aria-label={`사진 ${index + 1} 준비 중`}>
                   {item.status === "error" ? "오류" : "준비 중"}
@@ -194,22 +197,14 @@ export function PhotoListScreen() {
               )}
               <span className={styles.note} aria-live="polite">
                 {item.status === "preparing" ? "사진 줄이는 중" : null}
-                {item.status === "uploading" ? "올리는 중" : null}
-                {item.status === "ready" ? "올림" : null}
-                {item.status === "deleting" ? "지우는 중" : null}
-                {item.status === "ready" && item.message ? (
-                  <span role="alert" className={styles.error}>
-                    {" "}
-                    {item.message}
-                  </span>
-                ) : null}
+                {item.status === "ready" ? "준비됨" : null}
                 {item.status === "error" ? <span className={styles.error}>{item.message}</span> : null}
               </span>
               <button
                 type="button"
                 className={styles.secondary}
-                onClick={() => void remove(item)}
-                disabled={sending || (item.status !== "ready" && item.status !== "error")}
+                onClick={() => remove(item)}
+                disabled={sending || item.status === "preparing"}
                 aria-label={`사진 ${index + 1} 삭제`}
               >
                 삭제
@@ -239,8 +234,9 @@ export function PhotoListScreen() {
           <span>Pl@ntNet에 사진을 보내 식물을 찾는 데 동의합니다.</span>
         </label>
         <p className={styles.note}>
-          이번 요청에 한해 위 사진만 식물 식별 서비스 Pl@ntNet으로 보냅니다. 올린 사진은 이 앱의 비공개 저장소에
-          보관합니다. 자세한 안내는 더보기에 있습니다.
+          고른 사진은 이 기기에만 있습니다. 동의하고 [사진으로 식물 찾기]를 누르면 이번 요청에 한해 위 사진만 위치 정보를
+          지운 뒤 식물 식별 서비스 Pl@ntNet으로 보냅니다. 이 앱 서버에는 사진을 저장하지 않습니다. 자세한 안내는 더보기에
+          있습니다.
         </p>
         {error ? (
           <p role="alert" className={styles.error}>

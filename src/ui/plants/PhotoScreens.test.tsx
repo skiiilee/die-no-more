@@ -3,38 +3,40 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { IdentificationView } from "@/types/photo";
 import { IdentificationResults } from "./IdentificationResults";
-import { handOverPhotos, pendingPhotos } from "./pending-photos";
-import { DELETE_FAILED, IDENTIFY_MESSAGES, PhotoListScreen } from "./PhotoListScreen";
+import { clearKeptPhotos, handOverPhotos, keepPhotos, keptPhotos, pendingPhotos } from "./pending-photos";
+import { IDENTIFY_MESSAGES, PhotoListScreen } from "./PhotoListScreen";
 import { PhotoScanButton } from "./PhotoScanButton";
 
-const { push, upload, identify, remove } = vi.hoisted(() => ({
+const { push, identify, fit } = vi.hoisted(() => ({
   push: vi.fn<(href: string) => void>(),
-  upload: vi.fn(),
   identify: vi.fn(),
-  remove: vi.fn(),
+  fit: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 // The browser canvas is not available in jsdom: preparation always succeeds here.
 vi.mock("./photo-prep", () => ({
-  prepareForUpload: vi.fn(async () => ({ ok: true, blob: new Blob(["x"], { type: "image/jpeg" }) })),
+  prepareForUpload: vi.fn(async (file: File) => ({ ok: true, blob: new Blob([`small ${file.name}`], { type: "image/jpeg" }) })),
+  fitRequest: fit,
 }));
-vi.mock("./photo-client", () => ({ uploadPhotoFile: upload, requestIdentification: identify, deleteUploadedPhoto: remove }));
+vi.mock("./photo-client", () => ({ requestIdentification: identify }));
 
 const photo = (name: string) => new File(["x"], name, { type: "image/jpeg" });
 
 beforeEach(() => {
-  let n = 0;
-  upload.mockImplementation(async () => ({ kind: "ok", id: `40000000-0000-0000-0000-00000000000${n++}` }));
-  remove.mockResolvedValue(true);
+  fit.mockImplementation(async (photos: { blob: Blob }[]) => ({ ok: true, blobs: photos.map((p) => p.blob) }));
   URL.createObjectURL = vi.fn(() => "blob:preview");
   URL.revokeObjectURL = vi.fn();
 });
 
 afterEach(() => {
   cleanup();
+  clearKeptPhotos();
   vi.clearAllMocks();
 });
+
+/** Lets the delayed clean-up after an unmount run. */
+const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
 describe("S03 [식물 스캔]", () => {
   it("opens the camera/gallery dialog; [취소] closes it and stays on S03", () => {
@@ -66,15 +68,21 @@ describe("S03 [식물 스캔]", () => {
 
 async function openS03P(files: File[]) {
   handOverPhotos(files);
-  render(<PhotoListScreen />);
-  await waitFor(() => expect(screen.getAllByText("올림")).toHaveLength(Math.min(files.length, 5)));
+  const view = render(<PhotoListScreen />);
+  await waitFor(() => expect(screen.getAllByText("준비됨")).toHaveLength(Math.min(files.length, 5)));
+  return view;
 }
 
-describe("S03-P 업로드한 사진 (ADR-0003 D5)", () => {
-  it("uploads the photos picked on S03 and lists them", async () => {
+async function sendWithConsent() {
+  fireEvent.click(screen.getByRole("checkbox"));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "사진으로 식물 찾기" })));
+}
+
+describe("S03-P 고른 사진 (ADR-0003 D5, D6 changed 2026-11-18)", () => {
+  it("prepares the photos picked on S03 in the browser and lists them; nothing is sent yet", async () => {
     await openS03P([photo("a.jpg"), photo("b.jpg")]);
-    expect(upload).toHaveBeenCalledTimes(2);
-    expect(screen.getAllByRole("img", { name: /올린 사진/ })).toHaveLength(2);
+    expect(screen.getAllByRole("img", { name: /고른 사진/ })).toHaveLength(2);
+    expect(identify).not.toHaveBeenCalled();
   });
 
   it("keeps [사진으로 식물 찾기] off and sends nothing until consent is ticked", async () => {
@@ -88,122 +96,96 @@ describe("S03-P 업로드한 사진 (ADR-0003 D5)", () => {
     expect(find.disabled).toBe(false);
   });
 
-  it("sends the uploaded ids with consent and opens S04-A for the session", async () => {
+  it("sends the prepared photos with consent, in order, and opens S04-A for the session", async () => {
     identify.mockResolvedValue({ kind: "ok", sessionId: "50000000-0000-0000-0000-000000000001" });
     await openS03P([photo("a.jpg"), photo("b.jpg")]);
-    fireEvent.click(screen.getByRole("checkbox"));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "사진으로 식물 찾기" })));
-    expect(identify).toHaveBeenCalledWith(
-      ["40000000-0000-0000-0000-000000000000", "40000000-0000-0000-0000-000000000001"],
-      true,
-    );
+    await sendWithConsent();
+    const [blobs, consent] = identify.mock.calls[0]!;
+    expect(consent).toBe(true);
+    expect(await Promise.all((blobs as Blob[]).map((b) => b.text()))).toEqual(["small a.jpg", "small b.jpg"]);
     expect(push).toHaveBeenCalledWith("/plants/new/identify/50000000-0000-0000-0000-000000000001");
+  });
+
+  it("sends the smaller photos when all of them would not fit in one request", async () => {
+    const smaller = [new Blob(["tiny"], { type: "image/jpeg" })];
+    fit.mockResolvedValue({ ok: true, blobs: smaller });
+    identify.mockResolvedValue({ kind: "ok", sessionId: "50000000-0000-0000-0000-000000000001" });
+    await openS03P([photo("a.jpg")]);
+    await sendWithConsent();
+    expect(identify).toHaveBeenCalledWith(smaller, true);
+  });
+
+  it("says so, and sends nothing, when the photos cannot be made small enough", async () => {
+    fit.mockResolvedValue({ ok: false, message: "사진 용량이 너무 큽니다. 사진 수를 줄여 다시 시도해 주세요." });
+    await openS03P([photo("a.jpg")]);
+    await sendWithConsent();
+    expect(identify).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("사진 수를 줄여");
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
   });
 
   it("shows why it failed, keeps the photos, and asks for consent again", async () => {
     identify.mockResolvedValue({ kind: "quota" });
     await openS03P([photo("a.jpg")]);
-    fireEvent.click(screen.getByRole("checkbox"));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "사진으로 식물 찾기" })));
+    await sendWithConsent();
     expect(screen.getByRole("alert").textContent).toBe(IDENTIFY_MESSAGES.quota);
     expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
-    expect(screen.getAllByText("올림")).toHaveLength(1);
+    expect(screen.getAllByText("준비됨")).toHaveLength(1);
     expect(screen.getByRole("link", { name: "이름 검색으로 돌아가기" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "직접 입력하기" })).toBeTruthy();
   });
 
+  it("shows the server's reason when a photo is refused", async () => {
+    identify.mockResolvedValue({ kind: "invalid", message: "사진 2: 사진을 읽지 못했습니다. 다른 사진을 골라 주세요." });
+    await openS03P([photo("a.jpg"), photo("b.jpg")]);
+    await sendWithConsent();
+    expect(screen.getByRole("alert").textContent).toBe("사진 2: 사진을 읽지 못했습니다. 다른 사진을 골라 주세요.");
+  });
+
   it("takes at most 5 photos and says so", async () => {
     await openS03P(Array.from({ length: 7 }, (_, i) => photo(`${i}.jpg`)));
-    expect(upload).toHaveBeenCalledTimes(5);
-    expect(screen.getByText(/5장까지 올릴 수 있습니다/)).toBeTruthy();
+    expect(screen.getByText(/5장까지 고를 수 있습니다/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "+ 사진 추가" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("[삭제] removes the photo from the list once the server confirms it", async () => {
+  it("[삭제] takes the photo off the list at once; there is nothing on the server to delete", async () => {
     await openS03P([photo("a.jpg"), photo("b.jpg")]);
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "사진 1 삭제" })));
-    expect(screen.getAllByText("올림")).toHaveLength(1);
-    expect(remove).toHaveBeenCalledWith("40000000-0000-0000-0000-000000000000");
-  });
-
-  it("keeps the photo and says so when the server could not delete it (PR #17 review)", async () => {
-    remove.mockResolvedValue(false);
-    await openS03P([photo("a.jpg")]);
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "사진 1 삭제" })));
-    expect(screen.getAllByText("올림")).toHaveLength(1);
-    expect(screen.getByRole("alert").textContent).toContain(DELETE_FAILED);
-    // [삭제] can be pressed again.
-    remove.mockResolvedValue(true);
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "사진 1 삭제" })));
-    expect(screen.queryAllByText("올림")).toHaveLength(0);
-  });
-
-  it("shows 지우는 중 and blocks [사진으로 식물 찾기] while a delete is in flight", async () => {
-    let finish: (ok: boolean) => void = () => undefined;
-    remove.mockImplementation(() => new Promise<boolean>((resolve) => (finish = resolve)));
-    await openS03P([photo("a.jpg"), photo("b.jpg")]);
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "사진 1 삭제" }));
-    expect(screen.getByText("지우는 중")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "사진으로 식물 찾기" }) as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => finish(true));
-    expect(screen.queryByText("지우는 중")).toBeNull();
-  });
-
-  it("does not offer [삭제] while a photo is still uploading (PR #17 review)", async () => {
-    upload.mockImplementation(() => new Promise(() => undefined));
-    handOverPhotos([photo("a.jpg")]);
-    render(<PhotoListScreen />);
-    await screen.findByText("올리는 중");
-    expect((screen.getByRole("button", { name: "사진 1 삭제" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("deletes a photo whose upload finishes after the screen was left", async () => {
-    let finish: (answer: unknown) => void = () => undefined;
-    upload.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
-    handOverPhotos([photo("a.jpg")]);
-    const { unmount } = render(<PhotoListScreen />);
-    await screen.findByText("올리는 중");
-    unmount();
-    await act(async () => finish({ kind: "ok", id: "40000000-0000-0000-0000-000000000009" }));
-    expect(remove).toHaveBeenCalledWith("40000000-0000-0000-0000-000000000009", { keepalive: true });
-  });
-
-  it("deletes the uploaded photos when the screen is left without identifying", async () => {
-    handOverPhotos([photo("a.jpg"), photo("b.jpg")]);
-    const { unmount } = render(<PhotoListScreen />);
-    await waitFor(() => expect(screen.getAllByText("올림")).toHaveLength(2));
-    unmount();
-    expect(remove).toHaveBeenCalledWith("40000000-0000-0000-0000-000000000000", { keepalive: true });
-    expect(remove).toHaveBeenCalledWith("40000000-0000-0000-0000-000000000001", { keepalive: true });
-  });
-
-  it("keeps the photos when leaving for the results of an identification", async () => {
-    identify.mockResolvedValue({ kind: "ok", sessionId: "50000000-0000-0000-0000-000000000001" });
-    handOverPhotos([photo("a.jpg")]);
-    const { unmount } = render(<PhotoListScreen />);
-    await waitFor(() => expect(screen.getAllByText("올림")).toHaveLength(1));
-    fireEvent.click(screen.getByRole("checkbox"));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "사진으로 식물 찾기" })));
-    unmount();
-    expect(remove).not.toHaveBeenCalled();
-  });
-
-  it("shows the server's reason when a photo is refused", async () => {
-    upload.mockResolvedValueOnce({ kind: "invalid", message: "사진을 읽지 못했습니다. 다른 사진을 골라 주세요." });
-    handOverPhotos([photo("a.jpg")]);
-    render(<PhotoListScreen />);
-    expect(await screen.findByText("사진을 읽지 못했습니다. 다른 사진을 골라 주세요.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect((screen.getByRole("button", { name: "사진으로 식물 찾기" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByText("준비됨")).toHaveLength(1);
+    expect((screen.getByRole("button", { name: "+ 사진 추가" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("starts empty after a reload, with [사진 추가]", () => {
     handOverPhotos([]);
     render(<PhotoListScreen />);
-    expect(screen.getByText("아직 올린 사진이 없습니다.")).toBeTruthy();
+    expect(screen.getByText("아직 고른 사진이 없습니다.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "+ 사진 추가" }));
     expect(screen.getByRole("dialog", { name: "사진 선택" })).toBeTruthy();
+  });
+
+  it("shows the same photos again when coming back from S04-A", async () => {
+    identify.mockResolvedValue({ kind: "ok", sessionId: "50000000-0000-0000-0000-000000000001" });
+    const first = await openS03P([photo("a.jpg"), photo("b.jpg")]);
+    await sendWithConsent();
+    first.unmount();
+    await settle();
+    expect(keptPhotos()).toHaveLength(2);
+
+    render(<PhotoListScreen />);
+    expect(screen.getAllByText("준비됨")).toHaveLength(2);
+    // Consent is asked again for the next request.
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("forgets the photos when the screen is left without identifying", async () => {
+    keepPhotos([{ file: photo("a.jpg"), blob: new Blob(["a"]) }]);
+    const view = render(<PhotoListScreen />);
+    expect(screen.getAllByText("준비됨")).toHaveLength(1);
+    view.unmount();
+    await settle();
+    expect(keptPhotos()).toEqual([]);
+    expect(pendingPhotos()).toEqual([]);
+    expect(URL.revokeObjectURL).toHaveBeenCalled();
   });
 });
 

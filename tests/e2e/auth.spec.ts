@@ -50,11 +50,9 @@ for (const path of [
   });
 }
 
-test("photo API routes answer 401 JSON without a session, and send nothing on", async ({ request }) => {
-  const photo = { name: "a.jpg", mimeType: "image/jpeg", buffer: Buffer.from([0xff, 0xd8, 0xff]) };
-  const upload = await request.post("/api/uploads", { multipart: { photo } });
-  expect(upload.status()).toBe(401);
-  expect(await upload.json()).toEqual({ kind: "signed_out" });
-  const identify = await request.post("/api/identifications", { data: { photoIds: [], consent: true } });
+test("the photo API answers 401 JSON without a session, and sends nothing on", async ({ request }) => {
+  const photos = { name: "a.jpg", mimeType: "image/jpeg", buffer: Buffer.from([0xff, 0xd8, 0xff]) };
+  const identify = await request.post("/api/identifications", { multipart: { consent: "true", photos } });
   expect(identify.status()).toBe(401);
+  expect(await identify.json()).toEqual({ kind: "signed_out" });
 });

@@ -14,8 +14,7 @@ Never send API secrets to browser. Normalize provider responses and preserve pro
 ## Proposed internal endpoints
 | Method | Path | Purpose |
 |---|---|---|
-| POST | /api/uploads | Validate and store image |
-| POST | /api/identifications | Request identification |
+| POST | /api/identifications | Request identification (consent and photos in one multipart request; photos not stored) |
 | GET | /api/identifications/:id | Identification status and candidates |
 | GET | /api/species/search | Manual species search |
 | GET | /api/species/:id | Species reference |
@@ -46,7 +45,7 @@ Sources: [pricing](https://my.plantnet.org/pricing), [terms](https://my.plantnet
 
 - **Quota:** 500 identifications per day, reset at midnight UTC (09:00 KST). Over quota → HTTP 429 with `Retry-After` (next 00:00 UTC); every response carries a `RateLimit` header (`r` remaining, `t` seconds to reset); `GET /v2/quota/daily` returns `count`/`total`/`remaining` per request type ([quota](https://my.plantnet.org/doc/api/quota)). The free plan is never billed. Species and disease identification share this quota (1 credit per request).
 - **Terms:** free use allowed up to 500/day, commercial use too within that limit. One free account per person. Attribution is optional for free use. Submitted photos are kept only in memory during identification; Pl@ntNet stores date, time and image URLs of queries. Caching of results is not addressed.
-- **Request:** `POST https://my-api.plantnet.org/v2/identify/{project}?api-key=…` (`project=all`). `images` 1–5 files of one plant, JPEG or PNG only, total ≤ 50 MB. `organs` one per image: `leaf` | `flower` | `fruit` | `bark` | `auto` (default). Optional `nb-results`, `lang`, `no-reject`, `include-related-images`, `detailed`.
+- **Provider call:** `POST https://my-api.plantnet.org/v2/identify/{project}?api-key=…` (`project=all`). `images` 1–5 files of one plant, JPEG or PNG only, total ≤ 50 MB. `organs` one per image: `leaf` | `flower` | `fruit` | `bark` | `auto` (default). Optional `nb-results`, `lang`, `no-reject`, `include-related-images`, `detailed`.
 - **Response:** `results[]` with `score` (0–1), `species.scientificNameWithoutAuthor`, `species.commonNames`, `gbif.id`, `powo.id`; plus `bestMatch`, `version` (engine), `remainingIdentificationRequests`. Non-plant photo or no prediction → **404 "Species not found"**.
 - **Health:** `POST /v2/diseases/identify`, same image rules. `results[]` has `name` (EPPO code), `score`, `description` (label in the `lang` language). **Live check:** whether `lang=ko` is offered (`/v2/languages`); otherwise descriptions stay in English.
 - **Fit with our decisions:** our uploads are JPEG, long side 1600 px (D4) → short side ≥ 800 px for normal photos, which Pl@ntNet recommends; it resizes the short side to 1280 px itself. The key stays server-side (query parameter in a server call only).
@@ -161,18 +160,19 @@ One run of the adapters with the owner's keys (5 calls). Keys were never printed
 
 ## Photo identification implementation (2026-11-17)
 
-S03 [식물 스캔] → photo source dialog → S03-P (`/plants/new/photos`) → S04-A for the session (`/plants/new/identify/{id}`) → S04-B → S05. Route handlers: `POST /api/uploads`, `DELETE /api/uploads/{id}`, `POST /api/identifications` (ADR-0003 D7). The proposed `GET /api/identifications/:id` is a server-rendered page instead, like name search.
+S03 [식물 스캔] → photo source dialog → S03-P (`/plants/new/photos`) → S04-A for the session (`/plants/new/identify/{id}`) → S04-B → S05. One route handler: `POST /api/identifications` (ADR-0003 D7). The proposed `GET /api/identifications/:id` is a server-rendered page instead, like name search.
 
-- **Upload (D4):** the browser checks type (JPEG, PNG, WebP; HEIC only if it can decode it) and size (≤ 15 MB), applies the EXIF orientation, shrinks the long side to 1600 px and re-encodes JPEG 0.85. The server checks size (≤ 3 MB) and file signature, then re-encodes with `sharp` from the pixels only, so EXIF (including GPS), XMP and other metadata are dropped; the server result is what is stored, in `plant-photos/<user_id>/` with a `plant_photos` row (`photo_type = 'identification'`, unattached).
-- **Consent (D5):** the S03-P checkbox is sent with each request (`consent: true`); without it the server reads no photo and calls nothing. The box is cleared after every request.
-- **Request:** `POST https://my-api.plantnet.org/v2/identify/all?include-related-images=true&nb-results=5&lang=en&api-key=…`, one `images` file and one `organs=auto` per photo. A session row is written as `processing` before the call and becomes `completed` (normalized candidates: rank, score, species id, scientific name, reference photo and credit, provider, fetch time; plus endpoint and engine `version`) or `failed` (`quota`, `rejected`, `unavailable`, `save_failed`). The raw answer is not stored (D6).
+- **Photos stay in the tab (D6, changed 2026-11-18):** S03-P keeps the prepared photos in browser memory only. They travel inside the identification request and the server never stores them. The photos of a successful request stay in the tab, so coming back from S04-A shows them again; leaving S03-P any other way, or reloading, forgets them. (The first version uploaded each photo to Storage at once; PR #17 review P2 showed unused photos could stay there indefinitely.)
+- **Preparation (D4):** the browser checks type (JPEG, PNG, WebP; HEIC only if it can decode it) and size (≤ 15 MB), applies the EXIF orientation, shrinks the long side to 1600 px and re-encodes JPEG 0.85. All photos of one request must fit in 4 MB (Vercel takes request bodies up to 4.5 MB); when they do not, the browser re-prepares them from the originals at 1280 px / 0.75, then 1024 px / 0.65, and otherwise asks for fewer photos.
+- **Request:** multipart with `consent` and 1–5 `photos`. The server caps the body while reading it (4 MB + 64 KB, 413 above that, whatever `Content-Length` says), checks each photo's size (≤ 3 MB) and file signature, then re-encodes with `sharp` from the pixels only, so EXIF (including GPS), XMP and other metadata are dropped; only that result is sent on. A photo that cannot be used is answered with which one ("사진 2: …").
+- **Consent (D5):** the S03-P checkbox is sent with each request (`consent=true`); without it the server decodes no photo and calls nothing. The box is cleared after every request.
+- **Provider call:** `POST https://my-api.plantnet.org/v2/identify/all?include-related-images=true&nb-results=5&lang=en&api-key=…`, one `images` file and one `organs=auto` per photo. A session row is written as `processing` before the call and becomes `completed` (normalized candidates: rank, score, species id, scientific name, reference photo and credit, provider, fetch time; plus endpoint and engine `version`) or `failed` (`quota`, `rejected`, `unavailable`, `save_failed`). The raw answer is not stored (D6).
 - **Answers:** 200 → candidates (a 200 that is not a result list is a failure); 404 "Species not found" → completed with no candidates (S04-A offers search and manual entry); 429 → quota; 400/413/415 → photos rejected; anything else → unavailable.
 - **Daily cap (ADR-0004 D5):** reserved per attempt like the other providers, counted per **UTC day** (`PLANTNET_DAILY_LIMIT`, default 450). A 429 is recorded as `quota_exceeded` with `retry_at` from `Retry-After` (next 00:00 UTC when missing); a success whose `RateLimit` header says `r=0` sets `retry_at` to its reset time. S03-P then says "오전 9시 이후 다시 시도".
 - **Plant DB:** every candidate is stored by scientific-name key (D10) with `source = 'plantnet'`, so S04-B works the same as for name search (Korean name from Trefle, care data from Perenual, asked once).
 - **Scores:** kept in the session, not shown. S04-A shows the rank ("후보 1") and says the list is ordered by similarity and is not a confirmed result (03 §3-4).
 - **Photo credit:** Pl@ntNet reference photos are CC BY-SA. The citation ("Author / Pl@ntNet, cc-by-sa") is stored with the photo (`plant_species.image_credit`, never without `image_url`) and shown under it on S04-A and S04-B.
-- **Unattached photos (D6):** removed after 24 hours. Until the daily cleanup job exists, each upload first removes the user's own unattached photos older than 24 hours (at most 50 per upload).
-- **Requests from other sites:** the route handlers refuse a request whose `Origin` is another site, and answer 401 JSON (not a login redirect) without a session.
+- **Requests from other sites:** the route handler refuses a request whose `Origin` is another site, and answers 401 JSON (not a login redirect) without a session.
 
 ### Live check (2026-11-17)
 Two calls with one public photo of *Monstera deliciosa* (Wikimedia Commons, CC BY-SA 4.0). The key was never printed or committed.

@@ -1,40 +1,35 @@
 import type { IdentificationStore } from "@/repo/identification-repo";
-import type { PhotoStore } from "@/repo/photo-repo";
 import type { SpeciesStore } from "@/repo/species-repo";
 import { PHOTO_RULES, type IdentificationView, type IdentifyAnswer, type StoredCandidate } from "@/types/photo";
 import type { FoundSpecies } from "@/types/species";
+import type { ImageProcessor } from "./adapters/image";
 import type { PlantnetAdapter } from "./adapters/plantnet";
+import { cleanPhotos } from "./photo-cleaning";
 import { scientificNameKey } from "./species-search";
 
 /**
  * Photo identification (03 §3-3, ADR-0003 D5–D7).
- * 1. Consent is required on every request (D5). Without it nothing is read
- *    and nothing is sent.
- * 2. Only photos already uploaded and cleaned are sent (D7).
+ * 1. Consent is required on every request (D5). Without it no photo is
+ *    decoded and nothing is sent.
+ * 2. The photos come with the request and are checked and re-encoded here
+ *    (EXIF removed) before they are sent. They are never stored (D6, changed
+ *    2026-11-18): S03-P keeps them in the browser tab for another try.
  * 3. A session is written as `processing` before the call, then `completed`
- *    or `failed`, so the request is on record either way. The photos stay, so
- *    S03-P can try again without uploading them again.
+ *    or `failed`, so the request is on record either way.
  * 4. Each candidate is stored in the plant DB by scientific-name key (D10),
  *    so S04-B works the same as for name search. The candidates themselves
  *    stay in the session; nothing here is the user's choice of species.
  */
 
 export type IdentifyDeps = {
-  photos: PhotoStore;
+  image: ImageProcessor;
   sessions: IdentificationStore;
   species: SpeciesStore;
   plantnet: PlantnetAdapter | null;
   now?: () => Date;
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const PHOTO_COUNT_MESSAGE = `사진을 1장에서 ${PHOTO_RULES.maxCount}장까지 골라 주세요.`;
-
-function photoIds(value: unknown): string[] | null {
-  if (!Array.isArray(value) || value.length < 1 || value.length > PHOTO_RULES.maxCount) return null;
-  if (!value.every((id): id is string => typeof id === "string" && UUID.test(id))) return null;
-  return new Set(value).size === value.length ? value : null;
-}
 
 async function markFailed(sessions: IdentificationStore, id: string, code: string): Promise<void> {
   try {
@@ -45,23 +40,27 @@ async function markFailed(sessions: IdentificationStore, id: string, code: strin
   }
 }
 
-export async function identifyPhotos(deps: IdentifyDeps, input: { photoIds: unknown; consent: unknown }): Promise<IdentifyAnswer> {
+export async function identifyPhotos(
+  deps: IdentifyDeps,
+  input: { photos: Uint8Array[]; consent: boolean },
+): Promise<IdentifyAnswer> {
   if (input.consent !== true) return { kind: "consent_required" };
-  const ids = photoIds(input.photoIds);
-  if (!ids) return { kind: "invalid", message: PHOTO_COUNT_MESSAGE };
+  if (input.photos.length < 1 || input.photos.length > PHOTO_RULES.maxCount) {
+    return { kind: "invalid", message: PHOTO_COUNT_MESSAGE };
+  }
   if (!deps.plantnet) return { kind: "unavailable" };
 
+  const cleaned = await cleanPhotos(deps.image, input.photos);
+  if (!cleaned.ok) return { kind: "invalid", message: cleaned.message };
+
   let sessionId: string;
-  let photos: Uint8Array[] | null;
   try {
-    photos = await deps.photos.readIdentificationPhotos(ids);
-    if (!photos) return { kind: "photos_missing" };
     sessionId = await deps.sessions.create();
   } catch {
     return { kind: "failed" };
   }
 
-  const result = await deps.plantnet.identify(photos);
+  const result = await deps.plantnet.identify(cleaned.photos);
   if (result.kind === "quota" || result.kind === "rejected" || result.kind === "unavailable") {
     await markFailed(deps.sessions, sessionId, result.kind);
     return { kind: result.kind };
