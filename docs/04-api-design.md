@@ -158,3 +158,24 @@ One run of the adapters with the owner's keys (5 calls). Keys were never printed
 - **Display rule (owner decision 2026-11-15):** care codes in our label table are shown in Korean; any other Perenual value is shown as given, in English.
 - Perenual details 5257 (*Monstera deliciosa*): not requested (outside the free range), as designed.
 - Trefle `plants/search?q=monstera`: 20 results; `Monstera deliciosa` → Korean name "몬스테라".
+
+## Photo identification implementation (2026-11-17)
+
+S03 [식물 스캔] → photo source dialog → S03-P (`/plants/new/photos`) → S04-A for the session (`/plants/new/identify/{id}`) → S04-B → S05. Route handlers: `POST /api/uploads`, `DELETE /api/uploads/{id}`, `POST /api/identifications` (ADR-0003 D7). The proposed `GET /api/identifications/:id` is a server-rendered page instead, like name search.
+
+- **Upload (D4):** the browser checks type (JPEG, PNG, WebP; HEIC only if it can decode it) and size (≤ 15 MB), applies the EXIF orientation, shrinks the long side to 1600 px and re-encodes JPEG 0.85. The server checks size (≤ 3 MB) and file signature, then re-encodes with `sharp` from the pixels only, so EXIF (including GPS), XMP and other metadata are dropped; the server result is what is stored, in `plant-photos/<user_id>/` with a `plant_photos` row (`photo_type = 'identification'`, unattached).
+- **Consent (D5):** the S03-P checkbox is sent with each request (`consent: true`); without it the server reads no photo and calls nothing. The box is cleared after every request.
+- **Request:** `POST https://my-api.plantnet.org/v2/identify/all?include-related-images=true&nb-results=5&lang=en&api-key=…`, one `images` file and one `organs=auto` per photo. A session row is written as `processing` before the call and becomes `completed` (normalized candidates: rank, score, species id, scientific name, reference photo and credit, provider, fetch time; plus endpoint and engine `version`) or `failed` (`quota`, `rejected`, `unavailable`, `save_failed`). The raw answer is not stored (D6).
+- **Answers:** 200 → candidates (a 200 that is not a result list is a failure); 404 "Species not found" → completed with no candidates (S04-A offers search and manual entry); 429 → quota; 400/413/415 → photos rejected; anything else → unavailable.
+- **Daily cap (ADR-0004 D5):** reserved per attempt like the other providers, counted per **UTC day** (`PLANTNET_DAILY_LIMIT`, default 450). A 429 is recorded as `quota_exceeded` with `retry_at` from `Retry-After` (next 00:00 UTC when missing); a success whose `RateLimit` header says `r=0` sets `retry_at` to its reset time. S03-P then says "오전 9시 이후 다시 시도".
+- **Plant DB:** every candidate is stored by scientific-name key (D10) with `source = 'plantnet'`, so S04-B works the same as for name search (Korean name from Trefle, care data from Perenual, asked once).
+- **Scores:** kept in the session, not shown. S04-A shows the rank ("후보 1") and says the list is ordered by similarity and is not a confirmed result (03 §3-4).
+- **Photo credit:** Pl@ntNet reference photos are CC BY-SA. The citation ("Author / Pl@ntNet, cc-by-sa") is stored with the photo (`plant_species.image_credit`, never without `image_url`) and shown under it on S04-A and S04-B.
+- **Unattached photos (D6):** removed after 24 hours. Until the daily cleanup job exists, each upload first removes the user's own unattached photos older than 24 hours (at most 50 per upload).
+- **Requests from other sites:** the route handlers refuse a request whose `Origin` is another site, and answer 401 JSON (not a login redirect) without a session.
+
+### Live check (2026-11-17)
+Two calls with one public photo of *Monstera deliciosa* (Wikimedia Commons, CC BY-SA 4.0). The key was never printed or committed.
+- Raw call: 200 in about 5 s. `bestMatch` "Monstera deliciosa Liebm.", first result score 0.88, then *Philodendron bipinnatifidum*, *P. mayoi*, *Monstera adansonii*. Each result has `species.scientificNameWithoutAuthor`, `family`, `commonNames` (English), `gbif.id`, `powo.id` and up to 6 reference images with `url.o/m/s` on `bs.plantnet.org` and a `citation` with a CC BY-SA licence. `version` "2026-03-20 (7.5)".
+- Headers: `RateLimit: "dailyQuota";r=499;t=63873` and `RateLimit-Policy: "dailyQuota";q=500;w=86400`. `t` counted down to the next 00:00 UTC, as documented.
+- Through our adapter (photo cleaned by `sharp`, 237 KB): same top result (score 0.90), five candidates parsed with credits.
