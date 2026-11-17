@@ -16,8 +16,8 @@ export function searchHref(query: string): string {
 /**
  * Name search box (S03 and the top of S04-A). The search runs on the server
  * and can take a few seconds (Perenual, Trefle), so from the tap until the
- * results are on screen the button shows a spinner and "검색 중…" and a
- * status line says what is happening. Without JavaScript it is still a plain
+ * results are on screen the button shows a spinner and "검색 중…", and a
+ * large spinner with a status line fills the space where results appear. Without JavaScript it is still a plain
  * GET form to S04-A.
  */
 export function SpeciesSearchForm({ query = "" }: { query?: string }) {
@@ -62,9 +62,10 @@ export function SpeciesSearchForm({ query = "" }: { query?: string }) {
         )}
       </button>
       {searching ? (
-        <p role="status" className={`${styles.note} ${styles.searchStatus}`}>
-          {SEARCHING_MESSAGE}
-        </p>
+        <div role="status" className={styles.searchStatus}>
+          <Spinner size="large" />
+          <p className={styles.note}>{SEARCHING_MESSAGE}</p>
+        </div>
       ) : null}
     </form>
   );

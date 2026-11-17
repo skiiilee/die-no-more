@@ -43,7 +43,10 @@ describe("name search loading (S03, S04-A)", () => {
     const button = screen.getByRole("button", { name: /검색 중/ }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByTestId("spinner")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe(SEARCHING_MESSAGE);
+    // A large spinner with the message where the results will appear.
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe(SEARCHING_MESSAGE);
+    expect(status.querySelector("[data-testid=spinner-large]")).toBeTruthy();
     expect(screen.getByRole("search").getAttribute("aria-busy")).toBe("true");
   });
 
@@ -51,6 +54,7 @@ describe("name search loading (S03, S04-A)", () => {
     render(<SpeciesSearchForm />);
     expect(screen.getByRole("button", { name: "검색" })).toBeTruthy();
     expect(screen.queryByTestId("spinner")).toBeNull();
+    expect(screen.queryByTestId("spinner-large")).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
