@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
 import { MAX_QUERY_LENGTH } from "@/types/species";
 import { Spinner } from "@/ui/shell/Spinner";
 import styles from "./plants.module.css";
+import { useSearchPending } from "./SearchPending";
 
 export const SEARCHING_MESSAGE = "식물 정보를 찾는 중입니다. 몇 초 걸릴 수 있습니다.";
 
@@ -22,7 +22,7 @@ export function searchHref(query: string): string {
  */
 export function SpeciesSearchForm({ query = "" }: { query?: string }) {
   const router = useRouter();
-  const [searching, startSearch] = useTransition();
+  const { searching, startSearch } = useSearchPending();
 
   return (
     <form

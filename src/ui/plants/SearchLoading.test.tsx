@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LinkPending } from "./LinkPending";
+import { SpeciesResults } from "./SpeciesResults";
 import { SEARCHING_MESSAGE, searchHref, SpeciesSearchForm } from "./SpeciesSearchForm";
 
 const { push, transition, link } = vi.hoisted(() => ({
@@ -70,5 +71,59 @@ describe("[보기] loading (S04-A → S04-B)", () => {
   it("shows nothing when no navigation is pending", () => {
     const { container } = render(<LinkPending />);
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("re-searching on S04-A (PR #18 review)", () => {
+  const monstera = {
+    kind: "results" as const,
+    query: "몬스테라",
+    from: "providers" as const,
+    partial: false,
+    dropped: false,
+    candidates: [
+      { id: "s1", koreanName: "몬스테라", scientificName: "Monstera deliciosa", imageUrl: null, imageCredit: null },
+    ],
+  };
+
+  it("hides the previous results and their [보기] while the new search runs", () => {
+    const view = render(<SpeciesResults outcome={monstera} />);
+    expect(screen.getByRole("link", { name: "몬스테라 보기" })).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "식물 이름 검색" }), { target: { value: "고무나무" } });
+    fireEvent.submit(screen.getByRole("search"));
+    expect(push).toHaveBeenCalledWith(searchHref("고무나무"));
+
+    transition.pending = true;
+    view.rerender(<SpeciesResults outcome={monstera} />);
+    expect(screen.queryByRole("list", { name: "검색된 식물" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "몬스테라 보기" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe(SEARCHING_MESSAGE);
+    // Manual entry stays available while waiting.
+    expect(screen.getByRole("link", { name: "직접 입력하기" })).toBeTruthy();
+  });
+
+  it("shows results again when the search ends, whether new results arrive or the navigation fails", () => {
+    transition.pending = true;
+    const view = render(<SpeciesResults outcome={monstera} />);
+    expect(screen.queryByRole("list", { name: "검색된 식물" })).toBeNull();
+
+    // A failed navigation ends the transition with the same screen.
+    transition.pending = false;
+    view.rerender(<SpeciesResults outcome={monstera} />);
+    expect(screen.getByRole("link", { name: "몬스테라 보기" })).toBeTruthy();
+
+    // New results replace the old ones.
+    view.rerender(
+      <SpeciesResults
+        outcome={{
+          ...monstera,
+          query: "고무나무",
+          candidates: [{ id: "s2", koreanName: "고무나무", scientificName: "Ficus elastica", imageUrl: null, imageCredit: null }],
+        }}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "고무나무 보기" })).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
