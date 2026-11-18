@@ -73,6 +73,8 @@ function toPot(row: PotRow): PotView {
     waterReminder: row.water_reminder_enabled,
     fertilizerReminder: row.fertilizer_reminder_enabled,
     createdAt: row.created_at,
+    // Added by the pot photo service (signed link), not stored on the pot row.
+    photo: null,
   };
 }
 

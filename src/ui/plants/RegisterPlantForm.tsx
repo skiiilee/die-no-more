@@ -11,12 +11,13 @@ import {
   LIGHT_LEVELS,
   POT_MATERIALS,
   TEXT_LIMITS,
-  type Option,
   type PlantIdentity,
   type RegisterFormState,
-  type RegistrationField,
   type ReminderOptions,
 } from "@/types/plant";
+import { SelectField, TextAreaField, TextField } from "./FormFields";
+import { PotPhotoPicker } from "./PotPhotoPicker";
+import { usePickedPhoto } from "./use-picked-photo";
 import styles from "./plants.module.css";
 
 const INITIAL: RegisterFormState = { status: "idle", errors: {}, values: {} };
@@ -39,6 +40,11 @@ type Props = {
 export function RegisterPlantForm({ identity, plantName, reminders, backHref }: Props) {
   const [state, formAction, pending] = useActionState(registerPotAction, INITIAL);
   const [dirty, setDirty] = useState(false);
+  // Kept outside the form fields, so it survives the remount after an answer.
+  const picked = usePickedPhoto();
+  // The server's photo message is about the photo sent with that answer; a new pick replaces it.
+  const [photoChangedAt, setPhotoChangedAt] = useState<RegisterFormState | null>(null);
+  const serverPhotoError = photoChangedAt === state ? null : (state.errors.photo ?? null);
   // The answer that was on screen when [식물 추가하기] was pressed. While it is
   // still the current answer, the save is running or redirecting to S06, so
   // leaving is expected. A new answer (invalid, save_failed) re-arms the warning.
@@ -52,6 +58,13 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
   const showReminders = reminders.water || reminders.fertilizer;
   // Remount the fields after each answer so they show the echoed values.
   const formKey = JSON.stringify(values);
+
+  // The prepared photo travels with the fields; the picker itself sends nothing.
+  const submit = (formData: FormData) => {
+    formData.delete("photo");
+    if (picked.photo) formData.set("photo", picked.photo, "pot-photo.jpg");
+    formAction(formData);
+  };
 
   return (
     <section className={styles.screen} aria-labelledby="register-title">
@@ -82,7 +95,7 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
 
       <form
         key={formKey}
-        action={formAction}
+        action={submit}
         className={styles.columns}
         onChange={() => setDirty(true)}
         onSubmit={() => setSubmittedAt(state)}
@@ -92,6 +105,20 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
 
         <div className={styles.card}>
           <h2 className={styles.cardTitle}>식물 추가</h2>
+          <PotPhotoPicker
+            previewUrl={picked.previewUrl}
+            preparing={picked.preparing}
+            error={picked.error ?? serverPhotoError}
+            onPick={(file) => {
+              setDirty(true);
+              setPhotoChangedAt(state);
+              void picked.pick(file);
+            }}
+            onClear={() => {
+              setPhotoChangedAt(state);
+              picked.clear();
+            }}
+          />
           <p className={styles.note}>
             식물 이름: <strong>{plantName}</strong>
           </p>
@@ -184,7 +211,7 @@ export function RegisterPlantForm({ identity, plantName, reminders, backHref }: 
             </fieldset>
           ) : null}
 
-          <button type="submit" className={styles.primary} disabled={pending}>
+          <button type="submit" className={styles.primary} disabled={pending || picked.preparing}>
             {pending ? "저장 중…" : "식물 추가하기"}
           </button>
         </div>
@@ -200,119 +227,5 @@ function IdentityFields({ identity }: { identity: PlantIdentity }) {
       {identity.kind === "species" ? <input type="hidden" name="species" value={identity.speciesId} /> : null}
       {identity.kind === "manual" ? <input type="hidden" name="name" value={identity.name} /> : null}
     </>
-  );
-}
-
-type FieldProps = {
-  name: RegistrationField;
-  label: string;
-  defaultValue?: string;
-  error?: string;
-};
-
-function describedBy(name: string, error?: string, hint?: string) {
-  const ids = [error ? `${name}-error` : null, hint ? `${name}-hint` : null].filter(Boolean);
-  return ids.length > 0 ? ids.join(" ") : undefined;
-}
-
-function FieldMessages({ name, error, hint }: { name: string; error?: string; hint?: string }) {
-  return (
-    <>
-      {hint ? (
-        <p id={`${name}-hint`} className={styles.note}>
-          {hint}
-        </p>
-      ) : null}
-      {error ? (
-        <p id={`${name}-error`} className={styles.error}>
-          {error}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-function TextField({
-  name,
-  label,
-  placeholder,
-  max,
-  hint,
-  defaultValue,
-  error,
-}: FieldProps & { placeholder?: string; max: number; hint?: string }) {
-  return (
-    <div className={styles.field}>
-      <label htmlFor={name} className={styles.label}>
-        {label}
-      </label>
-      <input
-        id={name}
-        name={name}
-        className={styles.input}
-        placeholder={placeholder}
-        maxLength={max}
-        defaultValue={defaultValue}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy(name, error, hint)}
-      />
-      <FieldMessages name={name} error={error} hint={hint} />
-    </div>
-  );
-}
-
-function TextAreaField({ name, label, max, defaultValue, error }: FieldProps & { max: number }) {
-  return (
-    <div className={styles.field}>
-      <label htmlFor={name} className={styles.label}>
-        {label}
-      </label>
-      <textarea
-        id={name}
-        name={name}
-        className={styles.textarea}
-        maxLength={max}
-        defaultValue={defaultValue}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy(name, error)}
-      />
-      <FieldMessages name={name} error={error} />
-    </div>
-  );
-}
-
-/** Every S05 choice is required (user decision, 2026-11-13). */
-function SelectField<T extends string>({
-  name,
-  label,
-  options,
-  defaultValue,
-  error,
-}: FieldProps & { options: readonly Option<T>[] }) {
-  return (
-    <div className={styles.field}>
-      <label htmlFor={name} className={styles.label}>
-        {label}
-      </label>
-      <select
-        id={name}
-        name={name}
-        className={styles.select}
-        defaultValue={defaultValue ?? ""}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy(name, error)}
-        required
-      >
-        <option value="" disabled>
-          선택해 주세요
-        </option>
-        {options.map((option) => (
-          <option key={option.code} value={option.code}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      <FieldMessages name={name} error={error} />
-    </div>
   );
 }

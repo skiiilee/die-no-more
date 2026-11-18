@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { potInsertRow } from "@/repo/plant-repo";
 import type { PlantRegistration, SpeciesSummary } from "@/types/plant";
+import { JPEG, fakeImage, fakePhotoStore, photoDeps } from "../../tests/fakes/pot-photos";
 import { loadRegistrationContext, registerPot } from "./plant-service";
 
 const SPECIES: SpeciesSummary = {
@@ -105,7 +106,7 @@ describe("registerPot", () => {
   it("stores a valid pot and returns its id", async () => {
     const store = fakeStore();
     const result = await registerPot(store, form, false);
-    expect(result).toEqual({ ok: true, id: "20000000-0000-0000-0000-00000000000a" });
+    expect(result).toEqual({ ok: true, id: "20000000-0000-0000-0000-00000000000a", photo: "none" });
     expect(store.inserted[0]).toMatchObject({ identity: { kind: "manual", name: "고무나무" }, nickname: "거실" });
   });
 
@@ -194,5 +195,51 @@ describe("potInsertRow", () => {
       initial_last_repotted_range: "never",
     });
     expect(Object.keys(row).some((key) => key.includes("date") || key.endsWith("_at"))).toBe(false);
+  });
+});
+
+describe("registerPot with a photo (S05)", () => {
+  const form = {
+    mode: "manual",
+    name: "고무나무",
+    environment: "indoor",
+    lastWatered: "about_1_week",
+    lightLevel: "medium",
+    lastRepotted: "unknown",
+    potMaterial: "plastic",
+  };
+  const POT_ID = "20000000-0000-0000-0000-00000000000a";
+
+  it("saves the pot, then its photo", async () => {
+    const deps = photoDeps();
+    const result = await registerPot(fakeStore(), form, false, { bytes: JPEG, deps });
+    expect(result).toEqual({ ok: true, id: POT_ID, photo: "saved" });
+    expect(deps.photos.insertPhoto).toHaveBeenCalledWith(POT_ID, expect.any(String));
+  });
+
+  it("checks the photo with the fields and saves nothing when it is not usable", async () => {
+    const store = fakeStore();
+    const deps = photoDeps(fakePhotoStore(), fakeImage({ ok: false }));
+    const result = await registerPot(store, { ...form, potMaterial: "" }, false, { bytes: JPEG, deps });
+    if (result.ok) throw new Error("expected invalid");
+    expect(result.state.status).toBe("invalid");
+    expect(result.state.errors.photo).toBe("사진을 읽지 못했습니다. 다른 사진을 골라 주세요.");
+    expect(result.state.errors.potMaterial).toBeTruthy();
+    expect(store.insertPot).not.toHaveBeenCalled();
+    expect(deps.photos.upload).not.toHaveBeenCalled();
+  });
+
+  it("keeps the pot when only the photo upload fails, and says so", async () => {
+    const store = fakeStore();
+    const result = await registerPot(store, form, false, { bytes: JPEG, deps: photoDeps(fakePhotoStore({ upload: false })) });
+    expect(result).toEqual({ ok: true, id: POT_ID, photo: "failed" });
+    expect(store.inserted).toHaveLength(1);
+  });
+
+  it("uploads no photo when the pot could not be saved", async () => {
+    const deps = photoDeps();
+    const result = await registerPot(fakeStore({ insert: "fail" }), form, false, { bytes: JPEG, deps });
+    expect(result).toMatchObject({ ok: false, state: { status: "save_failed" } });
+    expect(deps.photos.upload).not.toHaveBeenCalled();
   });
 });

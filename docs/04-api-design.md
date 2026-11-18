@@ -179,3 +179,11 @@ Two calls with one public photo of *Monstera deliciosa* (Wikimedia Commons, CC B
 - Raw call: 200 in about 5 s. `bestMatch` "Monstera deliciosa Liebm.", first result score 0.88, then *Philodendron bipinnatifidum*, *P. mayoi*, *Monstera adansonii*. Each result has `species.scientificNameWithoutAuthor`, `family`, `commonNames` (English), `gbif.id`, `powo.id` and up to 6 reference images with `url.o/m/s` on `bs.plantnet.org` and a `citation` with a CC BY-SA licence. `version` "2026-03-20 (7.5)".
 - Headers: `RateLimit: "dailyQuota";r=499;t=63873` and `RateLimit-Policy: "dailyQuota";q=500;w=86400`. `t` counted down to the next 00:00 UTC, as documented.
 - Through our adapter (photo cleaned by `sharp`, 237 KB): same top result (score 0.90), five candidates parsed with credits.
+
+## Pot photos implementation (2026-11-19)
+S05 photo (optional, one) and S06 [사진 추가]/[사진 삭제]. No external provider is called; photos go only to the private `plant-photos` bucket (ADR-0003 D4, D6, D18).
+- **Transport:** Server Actions, not route handlers: `registerPotAction` (S05 fields plus `photo`), `addPotPhotoAction` (`potId`, `photo`), `deletePotPhotoAction` (`potId`, `photoId`). The body limit for Server Actions is raised to 3200 KB (`next.config.ts`) for one photo of at most 3 MB plus the form.
+- **Preparation:** the same browser step as S03-P (1600 px, JPEG 0.85, EXIF orientation applied). Only the prepared copy is sent; the file input has no form name. The server checks size and signature and re-encodes with `sharp` (no EXIF/GPS) before storing.
+- **Save:** upload to `{user_id}/{random uuid}.jpg`, then insert the `plant_photos` row (`photo_type = 'plant'`, `attached_at` now). If the row cannot be written, the file is removed in the same request. In S05 the photo is checked together with the fields before the pot is saved; if only the upload fails after the pot is saved, S06 opens with `?photo=failed` and asks for [사진 추가].
+- **Show:** S06 and the S11 card show the newest pot photo through a signed link valid for 1 hour.
+- **Delete:** after a confirmation, `delete_pot_photo()` removes the row and queues the path in `storage_deletions` in one transaction; the file is removed at once and the path marked `done` or `failed`. Failed paths wait for the retry job (DF-06).

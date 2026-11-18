@@ -749,6 +749,72 @@ select is(
 );
 
 -- ---------------------------------------------------------------------------
+-- Pot photos (20261119100000_pot_photos.sql): S05/S06 photo, delete per D18
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
+
+select throws_ok(
+  $$ insert into public.plant_photos (storage_path, photo_type)
+     values ('00000000-0000-0000-0000-00000000000a/no-pot.jpg', 'plant') $$,
+  '23514', null,
+  'a pot photo always belongs to a pot'
+);
+
+select lives_ok(
+  $$ insert into public.plant_photos (id, plant_id, storage_path, photo_type, attached_at) values
+       ('30000000-0000-0000-0000-0000000000f1', '20000000-0000-0000-0000-00000000000a',
+        '00000000-0000-0000-0000-00000000000a/p1.jpg', 'plant', now()) $$,
+  'A links a photo to own pot'
+);
+
+-- B cannot delete A's photo: no row comes back, nothing is queued.
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
+select is(
+  (select count(*)::int from public.delete_pot_photo('20000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000f1')),
+  0, 'B cannot delete A''s pot photo'
+);
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
+select is((select count(*)::int from public.plant_photos where id = '30000000-0000-0000-0000-0000000000f1'),
+  1, 'A''s photo is still there after B tried');
+
+select is(
+  (select count(*)::int from public.delete_pot_photo('20000000-0000-0000-0000-00000000000c', '30000000-0000-0000-0000-0000000000f1')),
+  0, 'a photo is only deleted through its own pot'
+);
+select is(
+  (select count(*)::int from public.delete_pot_photo('20000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1')),
+  0, 'only pot photos are deleted here (a health photo is not)'
+);
+
+select is(
+  (select storage_path from public.delete_pot_photo('20000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000f1')),
+  '00000000-0000-0000-0000-00000000000a/p1.jpg',
+  'A deletes own pot photo and gets the file path to remove'
+);
+select is((select count(*)::int from public.plant_photos where id = '30000000-0000-0000-0000-0000000000f1'),
+  0, 'the photo row is gone');
+select is(
+  (select status from public.storage_deletions where storage_path = '00000000-0000-0000-0000-00000000000a/p1.jpg'),
+  'pending', 'its file is queued for removal in the same transaction (D18)'
+);
+
+reset role;
+set local role anon;
+select set_config('request.jwt.claims', '{"role": "anon"}', true);
+select throws_ok(
+  $$ select * from public.delete_pot_photo('20000000-0000-0000-0000-00000000000a', '30000000-0000-0000-0000-0000000000a1') $$,
+  '42501', null,
+  'anon cannot delete pot photos'
+);
+
+-- ---------------------------------------------------------------------------
 -- Care AI single-flight claim with ownership (20261118100000_ai_care.sql,
 -- PR #19 review P1 and 2026-11-18 re-review: only the current claim's owner
 -- may release or finish it)

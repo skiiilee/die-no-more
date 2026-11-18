@@ -87,7 +87,9 @@ export type RegistrationField =
   | "lightLevel"
   | "lastRepotted"
   | "potMaterial"
-  | "memo";
+  | "memo"
+  /** The optional S05 photo (checked on the server, never echoed back). */
+  | "photo";
 
 /** Field → Korean message. Empty when the input is valid. */
 export type RegistrationErrors = Partial<Record<RegistrationField, string>>;
@@ -129,7 +131,18 @@ export type PotView = {
   waterReminder: boolean;
   fertilizerReminder: boolean;
   createdAt: string;
+  /** The pot's newest photo, shown on S06 and the S11 card. Null when it has none. */
+  photo: PotPhoto | null;
 };
+
+/**
+ * A pot photo in the private bucket. `url` is a short-lived signed link (the
+ * bucket is never public); null when the link could not be made.
+ */
+export type PotPhoto = { id: string; url: string | null; createdAt: string };
+
+/** S06 [사진 추가] / [사진 삭제] answer. "saved"/"deleted" redirect, so the screen only sees failures. */
+export type PotPhotoFormState = { status: "idle" | "invalid" | "failed"; message?: string };
 
 export const TEXT_LIMITS = { name: 60, nickname: 40, location: 60, memo: 500 } as const;
 

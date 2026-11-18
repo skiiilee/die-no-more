@@ -8,6 +8,7 @@ import {
   type SpeciesSummary,
 } from "@/types/plant";
 import { parseIdentity, parseRegistration, reminderOptions, type RawInput } from "./plant-registration";
+import { attachPotPhoto, cleanPotPhoto, type PhotoDeps } from "./pot-photos";
 
 /** What S05 needs before the form is shown. */
 export type RegistrationContext =
@@ -81,16 +82,25 @@ function echo(input: RawInput): RegistrationValues {
   return values;
 }
 
+/** The optional S05 photo: the picked bytes and what is needed to store them. */
+export type RegistrationPhoto = { bytes: Uint8Array; deps: PhotoDeps };
+
 /**
  * S05 [식물 추가하기]. Re-checks the identity and the offered reminders on the
  * server (the form is never trusted), then stores the pot. On any failure the
  * user's input is echoed back so nothing typed is lost.
+ *
+ * The optional photo is checked together with the fields, before anything is
+ * stored. It is uploaded after the pot is saved; if that fails the pot stays
+ * saved (the photo is optional) and `photo` says so, so S06 can offer
+ * [사진 추가] again.
  */
 export async function registerPot(
   store: Pick<PlantStore, "getSpecies" | "getReminderData" | "insertPot">,
   input: RawInput,
   remindersEnabled: boolean,
-): Promise<{ ok: true; id: string } | { ok: false; state: RegisterFormState }> {
+  photo: RegistrationPhoto | null = null,
+): Promise<{ ok: true; id: string; photo: "none" | "saved" | "failed" } | { ok: false; state: RegisterFormState }> {
   const values = echo(input);
   const saveFailed = { ok: false as const, state: { status: "save_failed" as const, errors: {}, values } };
   let context: RegistrationContext;
@@ -105,7 +115,12 @@ export async function registerPot(
   }
 
   const parsed = parseRegistration(input, context.reminders);
-  if (!parsed.ok) return { ok: false, state: { status: "invalid", errors: parsed.errors, values } };
+  const cleaned = photo ? await cleanPotPhoto(photo.deps.image, photo.bytes) : null;
+  const photoError = cleaned && !cleaned.ok ? cleaned.message : null;
+  if (!parsed.ok || photoError) {
+    const errors = { ...(parsed.ok ? {} : parsed.errors), ...(photoError ? { photo: photoError } : {}) };
+    return { ok: false, state: { status: "invalid", errors, values } };
+  }
 
   let saved: Awaited<ReturnType<PlantStore["insertPot"]>>;
   try {
@@ -114,5 +129,7 @@ export async function registerPot(
     return saveFailed;
   }
   if (!saved.ok) return saveFailed;
-  return { ok: true, id: saved.id };
+  if (!photo || !cleaned?.ok) return { ok: true, id: saved.id, photo: "none" };
+  const attached = await attachPotPhoto(photo.deps, saved.id, cleaned.jpeg).catch(() => false);
+  return { ok: true, id: saved.id, photo: attached ? "saved" : "failed" };
 }
