@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 import type { SpeciesStore } from "@/repo/species-repo";
-import { isStorableImageUrl, type FoundSpecies, type PerenualCare, type ProviderSpecies, type SpeciesRecord } from "@/types/species";
+import { isStorableImageUrl, type AiCare, type FoundSpecies, type PerenualCare, type ProviderSpecies, type SpeciesRecord } from "@/types/species";
+import type { CareAiAdapter, CareAiAnswer } from "@/service/adapters/care-ai";
 import type { DetailsAnswer, PerenualAdapter, SearchAnswer } from "@/service/adapters/perenual";
 import type { KoreanNameAnswer, TrefleAdapter, TrefleSearchAnswer } from "@/service/adapters/trefle";
 
@@ -20,6 +21,7 @@ export function record(overrides: Partial<SpeciesRecord> = {}): SpeciesRecord {
     imageCredit: null,
     koreanNameCheckedAt: null,
     careStatus: null,
+    careAiCheckedAt: null,
     ...overrides,
   };
 }
@@ -42,8 +44,25 @@ export function fakeTrefle(
   return { search: vi.fn(async () => search), koreanName: vi.fn(async () => koreanName) } satisfies TrefleAdapter;
 }
 
+export function fakeCareAi(answer: CareAiAnswer = { kind: "unavailable" }) {
+  return { describe: vi.fn(async () => answer) } satisfies CareAiAdapter;
+}
+
+/** The claim id fakeSpeciesStore hands out. */
+export const CLAIM_ID = "claim-1";
+
 export function fakeSpeciesStore(
-  options: { local?: SpeciesRecord[]; record?: SpeciesRecord | null; care?: PerenualCare | null; dropKeys?: string[] } = {},
+  options: {
+    local?: SpeciesRecord[];
+    record?: SpeciesRecord | null;
+    care?: PerenualCare | null;
+    aiCare?: { care: AiCare; model: string } | null;
+    /** Whether this request wins the care AI claim (default true; the claim id is CLAIM_ID). */
+    aiClaim?: boolean;
+    /** Whether saveAiCare still holds the claim when it writes (default true). */
+    aiClaimKept?: boolean;
+    dropKeys?: string[];
+  } = {},
 ) {
   let counter = 0;
   /** Everything saveFound returned, for getRecords. */
@@ -70,6 +89,10 @@ export function fakeSpeciesStore(
     getCare: vi.fn(async () => options.care ?? null),
     saveKoreanName: vi.fn(async () => {}),
     saveCare: vi.fn(async () => {}),
+    getAiCare: vi.fn(async () => options.aiCare ?? null),
+    saveAiCare: vi.fn(async () => options.aiClaimKept ?? true),
+    claimAiCare: vi.fn(async (): Promise<string | null> => ((options.aiClaim ?? true) ? CLAIM_ID : null)),
+    releaseAiCare: vi.fn(async () => {}),
   } satisfies SpeciesStore;
   return store;
 }

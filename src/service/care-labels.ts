@@ -1,4 +1,4 @@
-import type { CareFacts, PerenualCare } from "@/types/species";
+import { AI_CARE_FIELDS, type AiCare, type CareField, type CareFacts, type PerenualCare } from "@/types/species";
 
 /**
  * Korean labels for Perenual's coded care values (S04-B). These are fixed
@@ -51,6 +51,68 @@ export function careFacts(care: PerenualCare): CareFacts {
         ? `${benchmark.min}일`
         : `${benchmark.min}~${benchmark.max}일`
       : null,
+    temperature: null,
+    soil: null,
+    fertilizer: null,
     description: care.description,
+    aiFields: [],
+    aiModel: null,
   };
+}
+
+type Values = Omit<CareFacts, "aiFields" | "aiModel">;
+
+const EMPTY_VALUES: Values = {
+  careLevel: null,
+  light: null,
+  watering: null,
+  wateringInterval: null,
+  temperature: null,
+  soil: null,
+  fertilizer: null,
+  description: null,
+};
+
+function aiValues(ai: AiCare): Values {
+  const benchmark = ai.wateringBenchmark;
+  return {
+    careLevel: ai.careLevel,
+    light: ai.light,
+    watering: ai.watering,
+    wateringInterval: benchmark
+      ? benchmark.min === benchmark.max
+        ? `${benchmark.min}일`
+        : `${benchmark.min}~${benchmark.max}일`
+      : null,
+    temperature: ai.temperature,
+    soil: ai.soil,
+    fertilizer: ai.fertilizer,
+    description: ai.description,
+  };
+}
+
+/**
+ * Fills the fields `base` left empty with the care AI values (ADR-0005 D2, D5)
+ * and adds them to `aiFields`; values already in `base` are kept. Null when
+ * neither has any value.
+ */
+export function fillCareFacts(base: CareFacts | null, ai: AiCare | null, aiModel: string | null): CareFacts | null {
+  const a: Values = ai ? aiValues(ai) : EMPTY_VALUES;
+  const merged: Values = { ...EMPTY_VALUES };
+  const aiFields: CareField[] = [...(base?.aiFields ?? [])];
+  for (const field of AI_CARE_FIELDS) {
+    merged[field] = base?.[field] ?? null;
+    if (merged[field] === null && a[field] !== null) {
+      merged[field] = a[field];
+      aiFields.push(field);
+    }
+  }
+  const hasAny = AI_CARE_FIELDS.some((field) => merged[field] !== null);
+  if (!hasAny) return null;
+  return { ...merged, aiFields, aiModel: aiFields.length > 0 ? (aiModel ?? base?.aiModel ?? null) : null };
+}
+
+/** Perenual values first; the care AI fills only the fields Perenual left empty. */
+export function mergeCareFacts(perenual: PerenualCare | null, ai: AiCare | null, aiModel: string | null): CareFacts | null {
+  return fillCareFacts(perenual ? careFacts(perenual) : null, ai, aiModel);
 }

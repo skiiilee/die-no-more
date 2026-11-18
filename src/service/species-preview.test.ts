@@ -14,7 +14,7 @@ const CARE: PerenualCare = {
 };
 
 function deps(overrides: Partial<PreviewDeps> = {}): PreviewDeps {
-  return { species: fakeSpeciesStore(), perenual: fakePerenual(), trefle: fakeTrefle(), ...overrides };
+  return { species: fakeSpeciesStore(), perenual: fakePerenual(), trefle: fakeTrefle(), careAi: null, ...overrides };
 }
 
 describe("loadSpeciesPreview", () => {
@@ -79,7 +79,12 @@ describe("loadSpeciesPreview", () => {
         light: "반그늘, 그늘",
         watering: "보통",
         wateringInterval: "7~10일",
+        temperature: null,
+        soil: null,
+        fertilizer: null,
         description: "The Indian Rubberplant is a houseplant.",
+        aiFields: [],
+        aiModel: null,
       },
     });
   });
@@ -146,12 +151,34 @@ describe("careFacts", () => {
         careLevel: "Extreme",
         description: null,
       }),
-    ).toEqual({ careLevel: "Extreme", light: "반그늘, moonlight", watering: "Sometimes", wateringInterval: "5일", description: null });
+    ).toEqual({
+      careLevel: "Extreme",
+      light: "반그늘, moonlight",
+      watering: "Sometimes",
+      wateringInterval: "5일",
+      temperature: null,
+      soil: null,
+      fertilizer: null,
+      description: null,
+      aiFields: [],
+      aiModel: null,
+    });
   });
 
   it("is '정보 없음' (null) only when Perenual gave nothing", () => {
     expect(
       careFacts({ watering: null, wateringBenchmark: null, sunlight: [], careLevel: " ", description: null }),
-    ).toEqual({ careLevel: null, light: null, watering: null, wateringInterval: null, description: null });
+    ).toEqual({
+      careLevel: null,
+      light: null,
+      watering: null,
+      wateringInterval: null,
+      temperature: null,
+      soil: null,
+      fertilizer: null,
+      description: null,
+      aiFields: [],
+      aiModel: null,
+    });
   });
 });

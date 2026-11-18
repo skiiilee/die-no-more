@@ -204,6 +204,19 @@
   margin: 0;
 }
 
+/* 'AI 생성' mark on a care value filled by the care AI (ADR-0005 D5). */
+.aiMark {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-text-muted);
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
 /* Keep the line breaks typed in the memo. */
 .memo {
   white-space: pre-line;
@@ -382,4 +395,10 @@
   .backdrop {
     align-items: center;
   }
+}
+
+.aiLoading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }

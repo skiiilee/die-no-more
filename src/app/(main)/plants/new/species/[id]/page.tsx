@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getSpeciesPreview } from "@/runtime/species-queries";
+import { getAiCareFill, getSpeciesPreview } from "@/runtime/species-queries";
 import { SpeciesPreviewScreen } from "@/ui/plants/SpeciesPreviewScreen";
 
 export const metadata: Metadata = { title: "식물 정보 확인" };
+
+// Provider lookups (25 s, ADR-0003 D7) plus the streamed care AI step (25 s, ADR-0005 D6).
+export const maxDuration = 60;
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -13,7 +16,8 @@ const first = (value: string | string[] | undefined) => (Array.isArray(value) ? 
 
 /**
  * S04-B 식물 정보 확인. [뒤로] returns to the S04-A it came from: `q` for a
- * name search, `session` for a photo identification.
+ * name search, `session` for a photo identification. When the care AI has
+ * fields to fill, the screen shows first and those fields stream in.
  */
 export default async function Page({
   params,
@@ -33,5 +37,6 @@ export default async function Page({
       : query
         ? ({ kind: "search", query } as const)
         : null;
-  return <SpeciesPreviewScreen preview={preview} back={back} />;
+  const aiCare = preview.aiFill.length > 0 ? getAiCareFill(preview) : null;
+  return <SpeciesPreviewScreen preview={preview} back={back} aiCare={aiCare} />;
 }

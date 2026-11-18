@@ -1,5 +1,12 @@
 import "server-only";
-import { isStorableImageUrl, type CareStatus, type FoundSpecies, type PerenualCare, type SpeciesRecord } from "@/types/species";
+import {
+  isStorableImageUrl,
+  type AiCare,
+  type CareStatus,
+  type FoundSpecies,
+  type PerenualCare,
+  type SpeciesRecord,
+} from "@/types/species";
 import { PlantStoreError } from "./plant-repo";
 import type { SupabaseServerClient } from "./supabase-client";
 
@@ -27,10 +34,27 @@ export type SpeciesStore = {
   saveKoreanName(id: string, answer: { koreanName: string | null; trefleId: number | null }): Promise<void>;
   /** Records the Perenual care lookup and, when available, its values. */
   saveCare(id: string, answer: { status: CareStatus; perenualId: number | null; care: PerenualCare | null }): Promise<void>;
+  /** The care AI values stored for the species, or null when none (ADR-0005 D4). */
+  getAiCare(id: string): Promise<{ care: AiCare; model: string } | null>;
+  /**
+   * Takes the right to ask the care AI for this species (single-flight, review P1).
+   * Returns the claim id, or null when the species is already checked or another
+   * request holds a live claim.
+   */
+  claimAiCare(id: string): Promise<string | null>;
+  /**
+   * Records one care AI answer under the claim: its values (source 'ai', with the
+   * model name) and the time it was asked, in one transaction. An empty answer
+   * stores no values but still counts as asked. False, and nothing written, when
+   * the claim is no longer this request's (it expired and another took it).
+   */
+  saveAiCare(id: string, claimId: string, answer: { care: AiCare | null; model: string | null }): Promise<boolean>;
+  /** Gives the claim back after a failed call. Does nothing if the claim is no longer this request's. */
+  releaseAiCare(id: string, claimId: string): Promise<void>;
 };
 
 const COLUMNS =
-  "id, scientific_name_key, scientific_name, common_name_en, korean_name, family, perenual_id, trefle_id, image_url, image_credit, korean_name_checked_at, care_status";
+  "id, scientific_name_key, scientific_name, common_name_en, korean_name, family, perenual_id, trefle_id, image_url, image_credit, korean_name_checked_at, care_status, care_ai_checked_at";
 
 export type Row = {
   id: string;
@@ -45,6 +69,7 @@ export type Row = {
   image_credit: string | null;
   korean_name_checked_at: string | null;
   care_status: CareStatus | null;
+  care_ai_checked_at: string | null;
 };
 
 function toRecord(row: Row): SpeciesRecord {
@@ -61,6 +86,7 @@ function toRecord(row: Row): SpeciesRecord {
     imageCredit: row.image_credit,
     koreanNameCheckedAt: row.korean_name_checked_at,
     careStatus: row.care_status,
+    careAiCheckedAt: row.care_ai_checked_at,
   };
 }
 
@@ -120,6 +146,44 @@ export function careRows(speciesId: string, care: PerenualCare, fetchedAt: strin
   if (care.careLevel) rows.push({ field: "care_level", value: care.careLevel });
   if (care.description) rows.push({ field: "description", value: care.description });
   return rows.map((row) => ({ species_id: speciesId, ...row, source: "perenual", fetched_at: fetchedAt }));
+}
+
+/**
+ * Care AI values (ADR-0005 D4) as {species_care field: value}, for
+ * finish_care_ai(), which stores them as source 'ai' rows with the model.
+ */
+export function aiCareValues(care: AiCare): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  if (care.careLevel) values.care_level = care.careLevel;
+  if (care.light) values.light = care.light;
+  if (care.watering) values.watering = care.watering;
+  if (care.wateringBenchmark) values.watering_benchmark = { ...care.wateringBenchmark, unit: "days" };
+  if (care.temperature) values.temperature = care.temperature;
+  if (care.soil) values.soil = care.soil;
+  if (care.fertilizer) values.fertilizer_interval = care.fertilizer;
+  if (care.description) values.description = care.description;
+  return values;
+}
+
+/** The care AI values of one species from its species_care rows, or null when none. */
+export function toAiCare(rows: { field: string; value: unknown }[]): AiCare | null {
+  if (rows.length === 0) return null;
+  const value = (field: string) => rows.find((row) => row.field === field)?.value;
+  const text = (field: string) => (typeof value(field) === "string" ? (value(field) as string) : null);
+  const benchmark = value("watering_benchmark") as { min?: unknown; max?: unknown } | undefined;
+  return {
+    careLevel: text("care_level"),
+    light: text("light"),
+    watering: text("watering"),
+    wateringBenchmark:
+      benchmark && typeof benchmark.min === "number" && typeof benchmark.max === "number"
+        ? { min: benchmark.min, max: benchmark.max }
+        : null,
+    temperature: text("temperature"),
+    soil: text("soil"),
+    fertilizer: text("fertilizer_interval"),
+    description: text("description"),
+  };
 }
 
 /** Postgres unique violation: here, a provider ID already stored under another scientific name. */
@@ -228,6 +292,41 @@ export function supabaseSpeciesStore(client: SupabaseServerClient): SpeciesStore
       if (answer.perenualId !== null) update.perenual_id = answer.perenualId;
       const { error } = await client.from("plant_species").update(update).eq("id", id);
       if (error) throw new PlantStoreError("saveCare status", { cause: error });
+    },
+
+    async getAiCare(id) {
+      const { data, error } = await client
+        .from("species_care")
+        .select("field, value, ai_model")
+        .eq("species_id", id)
+        .eq("source", "ai");
+      if (error || !data) throw new PlantStoreError("getAiCare", { cause: error });
+      const rows = data as { field: string; value: unknown; ai_model: string | null }[];
+      const care = toAiCare(rows);
+      return care ? { care, model: rows[0]?.ai_model ?? "unknown" } : null;
+    },
+
+    async claimAiCare(id) {
+      const { data, error } = await client.rpc("claim_care_ai", { p_species_id: id });
+      if (error) throw new PlantStoreError("claimAiCare", { cause: error });
+      return typeof data === "string" ? data : null;
+    },
+
+    async saveAiCare(id, claimId, answer) {
+      const values = answer.care && answer.model ? aiCareValues(answer.care) : {};
+      const { data, error } = await client.rpc("finish_care_ai", {
+        p_species_id: id,
+        p_claim_id: claimId,
+        p_model: answer.model,
+        p_values: values,
+      });
+      if (error) throw new PlantStoreError("saveAiCare", { cause: error });
+      return data === true;
+    },
+
+    async releaseAiCare(id, claimId) {
+      const { error } = await client.rpc("release_care_ai", { p_species_id: id, p_claim_id: claimId });
+      if (error) throw new PlantStoreError("releaseAiCare", { cause: error });
     },
   };
 }

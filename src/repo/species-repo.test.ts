@@ -71,6 +71,7 @@ const ROW: Row = {
   image_credit: null,
   korean_name_checked_at: null,
   care_status: null,
+  care_ai_checked_at: null,
 };
 
 describe("storing search results", () => {

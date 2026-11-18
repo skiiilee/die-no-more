@@ -748,9 +748,110 @@ select is(
   'B cannot see A''s identification'
 );
 
+-- ---------------------------------------------------------------------------
+-- Care AI single-flight claim with ownership (20261118100000_ai_care.sql,
+-- PR #19 review P1 and 2026-11-18 re-review: only the current claim's owner
+-- may release or finish it)
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
+
+insert into public.plant_species (id, scientific_name_key, scientific_name, source)
+values ('70000000-0000-0000-0000-00000000000a', 'claim test', 'Claim test', 'perenual');
+
+-- Request A claims.
+select set_config('test.claim_a', public.claim_care_ai('70000000-0000-0000-0000-00000000000a')::text, true);
+select isnt(current_setting('test.claim_a'), '', 'the first request gets a claim id');
+
+select is(public.claim_care_ai('70000000-0000-0000-0000-00000000000a'), null,
+  'a second request cannot claim while the first claim is live');
+
+select is(public.release_care_ai('70000000-0000-0000-0000-00000000000a', gen_random_uuid()), false,
+  'a wrong claim id cannot release the claim');
+
+-- A's claim expires; request B takes a new one.
+update public.plant_species set care_ai_claimed_at = now() - interval '3 minutes'
+ where id = '70000000-0000-0000-0000-00000000000a';
+select set_config('test.claim_b', public.claim_care_ai('70000000-0000-0000-0000-00000000000a')::text, true);
+select ok(current_setting('test.claim_b') not in ('', current_setting('test.claim_a')),
+  'after 2 minutes the claim is treated as abandoned and B gets a new claim id');
+
+-- A finishes late: neither its release nor its save touches B's claim.
+select is(public.release_care_ai('70000000-0000-0000-0000-00000000000a', current_setting('test.claim_a')::uuid), false,
+  'an expired claim cannot release the newer claim');
+select is(public.finish_care_ai('70000000-0000-0000-0000-00000000000a', current_setting('test.claim_a')::uuid,
+          'model-a', '{"light": "A light"}'::jsonb), false,
+  'an expired claim cannot store a late answer');
+select is((select care_ai_claim_id::text from public.plant_species where id = '70000000-0000-0000-0000-00000000000a'),
+  current_setting('test.claim_b'), 'B still holds its claim after A''s late release and save');
+select is((select count(*)::int from public.species_care where species_id = '70000000-0000-0000-0000-00000000000a'),
+  0, 'nothing from the expired claim is stored');
+select is(public.claim_care_ai('70000000-0000-0000-0000-00000000000a'), null,
+  'a third request still cannot claim while B holds the claim');
+
+-- B finishes: values stored as 'ai' with the model, species marked as asked.
+select is(public.finish_care_ai('70000000-0000-0000-0000-00000000000a', current_setting('test.claim_b')::uuid,
+          'model-b', '{"light": "밝은 간접광", "watering_benchmark": {"min": 5, "max": 7, "unit": "days"}}'::jsonb), true,
+  'the current claim stores its answer');
+select is((select count(*)::int from public.species_care
+            where species_id = '70000000-0000-0000-0000-00000000000a' and source = 'ai' and ai_model = 'model-b' and user_id is null),
+  2, 'the answer is stored as shared ai rows with the model');
+select ok((select care_ai_checked_at is not null and care_ai_claim_id is null and care_ai_claimed_at is null
+             from public.plant_species where id = '70000000-0000-0000-0000-00000000000a'),
+  'finishing marks the species as asked and clears the claim');
+select is(public.claim_care_ai('70000000-0000-0000-0000-00000000000a'), null,
+  'a species already asked is never claimed again');
+select is(public.finish_care_ai('70000000-0000-0000-0000-00000000000a', current_setting('test.claim_b')::uuid,
+          'model-b', '{}'::jsonb), false,
+  'the same claim cannot finish twice');
+
+-- An empty answer: marked as asked, nothing stored.
+insert into public.plant_species (id, scientific_name_key, scientific_name, source)
+values ('70000000-0000-0000-0000-00000000000b', 'claim empty', 'Claim empty', 'perenual');
+select set_config('test.claim_c', public.claim_care_ai('70000000-0000-0000-0000-00000000000b')::text, true);
+select is(public.finish_care_ai('70000000-0000-0000-0000-00000000000b', current_setting('test.claim_c')::uuid, null, '{}'::jsonb), true,
+  'an empty answer is recorded with no model');
+select is((select count(*)::int from public.species_care where species_id = '70000000-0000-0000-0000-00000000000b'),
+  0, 'an empty answer stores no values');
+
+-- A failed call releases its own claim, so the next visit can ask.
+insert into public.plant_species (id, scientific_name_key, scientific_name, source)
+values ('70000000-0000-0000-0000-00000000000c', 'claim release', 'Claim release', 'perenual');
+select set_config('test.claim_d', public.claim_care_ai('70000000-0000-0000-0000-00000000000c')::text, true);
+select is(public.release_care_ai('70000000-0000-0000-0000-00000000000c', current_setting('test.claim_d')::uuid), true,
+  'the owner releases its claim after a failed call');
+select isnt(public.claim_care_ai('70000000-0000-0000-0000-00000000000c'), null,
+  'a released species can be claimed again');
+
+select is(public.claim_care_ai('70000000-0000-0000-0000-0000000000ff'), null,
+  'an unknown species cannot be claimed');
+
+select throws_ok(
+  $$ update public.plant_species set care_ai_claim_id = gen_random_uuid()
+      where id = '70000000-0000-0000-0000-00000000000b' $$,
+  '23514', null,
+  'a claim id is never stored without its claim time'
+);
+
 reset role;
 set local role anon;
 select set_config('request.jwt.claims', '{"role": "anon"}', true);
+select throws_ok(
+  $$ select public.claim_care_ai('70000000-0000-0000-0000-00000000000a') $$,
+  '42501', null,
+  'anon cannot claim a care AI call'
+);
+select throws_ok(
+  $$ select public.finish_care_ai('70000000-0000-0000-0000-00000000000a', gen_random_uuid(), 'm', '{}'::jsonb) $$,
+  '42501', null,
+  'anon cannot store a care AI answer'
+);
+select throws_ok(
+  $$ select public.release_care_ai('70000000-0000-0000-0000-00000000000a', gen_random_uuid()) $$,
+  '42501', null,
+  'anon cannot release a care AI claim'
+);
 select throws_ok(
   $$ select * from public.search_species('ficus') $$,
   '42501', null,
