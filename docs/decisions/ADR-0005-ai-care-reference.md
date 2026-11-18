@@ -25,7 +25,7 @@ Related: `docs/stage2/04-data-sources.md`, ADR-0003 D13, ADR-0004 D5, `docs/09-d
 ### D2. 호출 시점과 횟수
 - S04-B를 열 때만 호출한다. 이름 검색(S03·S04-A)에서는 호출하지 않는다.
 - 종당 한 번만 묻는다(`plant_species.care_ai_checked_at`). 답을 받아 저장하면 기록하고, 호출이 실패하면 기록하지 않아 다음 방문 때 다시 묻는다. 빈 답은 기록만 하고 값은 저장하지 않는다.
-- 동시 요청은 한 번만 묻는다. `claim_care_ai()`로 종 단위 선점을 원자적으로 얻고, 선점은 2분 뒤 만료된다. 실패하면 선점을 돌려준다. 선점을 얻지 못한 요청은 AI를 부르지 않고, 표시할 값이 없으면 '대기'로 보여 준다(다른 요청이 채우는 중이므로 '정보 없음'이 아님).
+- 동시 요청은 한 번만 묻는다. `claim_care_ai()`로 종 단위 선점을 원자적으로 얻는다. 선점마다 고유한 선점 ID가 발급되고 2분 뒤 만료된다. 저장(`finish_care_ai()`, 값 저장과 조회 기록을 한 트랜잭션으로)과 해제(`release_care_ai()`)는 현재 선점 ID를 가진 요청만 할 수 있다. 그래서 선점이 만료된 뒤 늦게 끝난 요청은 새 선점을 풀거나 결과를 저장하지 못한다. 실패하면 자기 선점을 돌려준다. 선점을 얻지 못한 요청은 AI를 부르지 않고, 표시할 값이 없으면 '대기'로 보여 준다(다른 요청이 채우는 중이므로 '정보 없음'이 아님).
 - 비어 있는 항목이 하나도 없으면 묻지 않는다. 묻는 것은 Perenual이 비운 항목뿐이다.
 - Perenual 조회가 실패해도 AI는 호출할 수 있다. 저장된 AI 값은 Perenual이 대기 중이어도 보여 준다. 둘 다 없을 때만 '대기'다.
 - Perenual이 채운 항목은 AI 값으로 바꾸지 않는다. Perenual이 비운 항목만 AI 값으로 채우고, 그 항목에만 출처를 표시한다.
@@ -53,4 +53,4 @@ Related: `docs/stage2/04-data-sources.md`, ADR-0003 D13, ADR-0004 D5, `docs/09-d
 - 보내는 내용은 학명 같은 공개 정보로 한정한다. 무료 등급이므로 Google이 이 내용을 제품 개선에 쓸 수 있다.
 - AI 값은 사실 확인이 되지 않는다. 'AI 생성' 표시와 안내 문구로 그 사실을 드러낸다.
 - 04-data-sources의 "값을 새로 만들지 않는다" 규칙은 AI 보완 항목에 한해 이 ADR이 예외로 둔다.
-- DB: `20261118100000_ai_care.sql`이 `species_care.source`에 `'ai'`, `species_care.ai_model`, `plant_species.care_ai_checked_at`, `api_usage_logs.provider`에 `'care_ai'`를 추가한다. 마이그레이션은 PR 병합 뒤에만 실제 프로젝트에 적용한다.
+- DB: `20261118100000_ai_care.sql`이 `species_care.source`에 `'ai'`, `species_care.ai_model`, `plant_species.care_ai_checked_at`·`care_ai_claim_id`·`care_ai_claimed_at`, 함수 `claim_care_ai`·`finish_care_ai`·`release_care_ai`, `api_usage_logs.provider`에 `'care_ai'`를 추가한다. 마이그레이션은 PR 병합 뒤에만 실제 프로젝트에 적용한다.

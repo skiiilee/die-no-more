@@ -95,6 +95,8 @@ function missingFields(perenual: PerenualCare | null): CareField[] {
  * - only one request at a time may ask (claim, review P1): a request that loses
  *   the claim gets "busy" (shown as pending) and the winner stores the values;
  * - a failed call gives the claim back, so the next visit asks again;
+ * - release and save only act while the claim is still this request's (claim
+ *   id, review 2026-11-18): a request whose claim expired stores nothing;
  * - an empty answer is marked as asked and stores nothing.
  */
 async function ensureAiCare(
@@ -105,21 +107,21 @@ async function ensureAiCare(
   if (record.careAiCheckedAt) return (await deps.species.getAiCare(record.id)) ?? null;
   const ai = deps.careAi;
   if (!ai || missing.length === 0) return null;
-  if (!(await deps.species.claimAiCare(record.id))) return "busy";
+  const claim = await deps.species.claimAiCare(record.id);
+  if (!claim) return "busy";
   try {
     const answer = await ai.describe(record.scientificName, missing);
     if (answer.kind === "quota" || answer.kind === "unavailable") {
-      await deps.species.releaseAiCare(record.id);
+      await deps.species.releaseAiCare(record.id, claim);
       return null;
     }
-    if (answer.kind === "none") {
-      await deps.species.saveAiCare(record.id, { care: null, model: null });
-      return null;
-    }
-    await deps.species.saveAiCare(record.id, { care: answer.care, model: answer.model });
-    return { care: answer.care, model: answer.model };
+    const care = answer.kind === "ok" ? answer.care : null;
+    const stored = await deps.species.saveAiCare(record.id, claim, { care, model: care ? answer.model : null });
+    // Our claim expired and another request took it: it stores the answer, not us.
+    if (!stored) return "busy";
+    return care ? { care, model: answer.model } : null;
   } catch (error) {
-    await deps.species.releaseAiCare(record.id);
+    await deps.species.releaseAiCare(record.id, claim);
     throw error;
   }
 }

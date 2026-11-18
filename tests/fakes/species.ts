@@ -48,14 +48,19 @@ export function fakeCareAi(answer: CareAiAnswer = { kind: "unavailable" }) {
   return { describe: vi.fn(async () => answer) } satisfies CareAiAdapter;
 }
 
+/** The claim id fakeSpeciesStore hands out. */
+export const CLAIM_ID = "claim-1";
+
 export function fakeSpeciesStore(
   options: {
     local?: SpeciesRecord[];
     record?: SpeciesRecord | null;
     care?: PerenualCare | null;
     aiCare?: { care: AiCare; model: string } | null;
-    /** Whether this request wins the care AI claim (default true). */
+    /** Whether this request wins the care AI claim (default true; the claim id is CLAIM_ID). */
     aiClaim?: boolean;
+    /** Whether saveAiCare still holds the claim when it writes (default true). */
+    aiClaimKept?: boolean;
     dropKeys?: string[];
   } = {},
 ) {
@@ -85,8 +90,8 @@ export function fakeSpeciesStore(
     saveKoreanName: vi.fn(async () => {}),
     saveCare: vi.fn(async () => {}),
     getAiCare: vi.fn(async () => options.aiCare ?? null),
-    saveAiCare: vi.fn(async () => {}),
-    claimAiCare: vi.fn(async () => options.aiClaim ?? true),
+    saveAiCare: vi.fn(async () => options.aiClaimKept ?? true),
+    claimAiCare: vi.fn(async (): Promise<string | null> => ((options.aiClaim ?? true) ? CLAIM_ID : null)),
     releaseAiCare: vi.fn(async () => {}),
   } satisfies SpeciesStore;
   return store;

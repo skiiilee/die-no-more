@@ -43,30 +43,93 @@ alter table public.api_usage_logs
   add constraint api_usage_logs_provider_check
   check (provider in ('plantnet', 'perenual', 'trefle', 'azure_translator', 'care_ai'));
 
--- Single-flight claim (review P1): only one request at a time asks the care AI
--- for a species. A claim older than 2 minutes counts as abandoned (the request
--- died), so a later visit can ask again. Released on failure, cleared on save.
+-- Single-flight claim (review P1). Only one request at a time asks the care AI
+-- for a species. Each claim gets its own token (claim id), and only the request
+-- holding the current token can finish or release it (review 2026-11-18): a
+-- request whose claim expired cannot clear a newer claim or store a late answer.
+-- A claim older than 2 minutes counts as abandoned (the request died), so a
+-- later visit can take it.
 alter table public.plant_species
-  add column care_ai_claimed_at timestamptz;
+  add column care_ai_claim_id uuid,
+  add column care_ai_claimed_at timestamptz,
+  add constraint plant_species_care_ai_claim check ((care_ai_claim_id is null) = (care_ai_claimed_at is null));
 
+-- Returns the new claim id, or null when the species is already asked, unknown,
+-- or claimed by a live request.
 create or replace function public.claim_care_ai(p_species_id uuid)
-returns boolean
+returns uuid
 language plpgsql
 security invoker
 set search_path = ''
 as $$
 declare
-  claimed integer;
+  claim uuid := gen_random_uuid();
 begin
   update public.plant_species
-     set care_ai_claimed_at = now()
+     set care_ai_claim_id = claim, care_ai_claimed_at = now()
    where id = p_species_id
      and care_ai_checked_at is null
      and (care_ai_claimed_at is null or care_ai_claimed_at < now() - interval '2 minutes');
-  get diagnostics claimed = row_count;
-  return claimed > 0;
+  if not found then
+    return null;
+  end if;
+  return claim;
+end;
+$$;
+
+-- Gives the claim back after a failed call. No-op unless p_claim_id is the
+-- current claim. Returns whether it released.
+create or replace function public.release_care_ai(p_species_id uuid, p_claim_id uuid)
+returns boolean
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  update public.plant_species
+     set care_ai_claim_id = null, care_ai_claimed_at = null
+   where id = p_species_id
+     and care_ai_checked_at is null
+     and care_ai_claim_id = p_claim_id;
+  return found;
+end;
+$$;
+
+-- Records one answer in one transaction: marks the species as asked and stores
+-- the values ({field: value}, source 'ai', with the model). Nothing is written
+-- unless p_claim_id is the current claim. An empty object stores no values but
+-- still marks the species as asked. Returns whether it stored.
+create or replace function public.finish_care_ai(
+  p_species_id uuid,
+  p_claim_id uuid,
+  p_model text,
+  p_values jsonb
+)
+returns boolean
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  update public.plant_species
+     set care_ai_checked_at = now(), care_ai_claim_id = null, care_ai_claimed_at = null
+   where id = p_species_id
+     and care_ai_checked_at is null
+     and care_ai_claim_id = p_claim_id;
+  if not found then
+    return false;
+  end if;
+  insert into public.species_care (species_id, field, value, source, ai_model, fetched_at)
+  select p_species_id, item.key, item.value, 'ai', p_model, now()
+    from jsonb_each(coalesce(p_values, '{}'::jsonb)) as item
+  on conflict (species_id, field, source, user_id) do nothing;
+  return true;
 end;
 $$;
 
 revoke all on function public.claim_care_ai(uuid) from public, anon;
 grant execute on function public.claim_care_ai(uuid) to authenticated;
+revoke all on function public.release_care_ai(uuid, uuid) from public, anon;
+grant execute on function public.release_care_ai(uuid, uuid) to authenticated;
+revoke all on function public.finish_care_ai(uuid, uuid, text, jsonb) from public, anon;
+grant execute on function public.finish_care_ai(uuid, uuid, text, jsonb) to authenticated;

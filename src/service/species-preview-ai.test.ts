@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AI_CARE_FIELDS, type AiCare, type PerenualCare } from "@/types/species";
 import { loadSpeciesPreview, type PreviewDeps } from "./species-preview";
-import { fakeCareAi, fakePerenual, fakeSpeciesStore, fakeTrefle, record } from "../../tests/fakes/species";
+import { fakeCareAi, fakePerenual, fakeSpeciesStore, fakeTrefle, record, CLAIM_ID } from "../../tests/fakes/species";
 
 const AI: AiCare = {
   careLevel: "쉬움",
@@ -33,7 +33,7 @@ describe("care AI fill (ADR-0005)", () => {
     const careAi = fakeCareAi({ kind: "ok", care: AI, model: "model-x" });
     const preview = await loadSpeciesPreview(deps({ species, careAi }), ID);
     expect(careAi.describe).toHaveBeenCalledWith("Ficus elastica", AI_CARE_FIELDS);
-    expect(species.saveAiCare).toHaveBeenCalledWith(ID, { care: AI, model: "model-x" });
+    expect(species.saveAiCare).toHaveBeenCalledWith(ID, CLAIM_ID, { care: AI, model: "model-x" });
     expect(preview?.care).toEqual({
       status: "available",
       facts: {
@@ -91,7 +91,7 @@ describe("care AI fill (ADR-0005)", () => {
   it("marks an empty AI answer as asked, stores nothing, and shows no care data", async () => {
     const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
     const preview = await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "none", model: "model-x" }) }), ID);
-    expect(species.saveAiCare).toHaveBeenCalledWith(ID, { care: null, model: null });
+    expect(species.saveAiCare).toHaveBeenCalledWith(ID, CLAIM_ID, { care: null, model: null });
     expect(preview?.care).toEqual({ status: "none" });
   });
 
@@ -146,9 +146,9 @@ describe("care AI: single-flight, missing fields, Perenual outage (review P1, P2
     const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
     species.claimAiCare.mockImplementation(async () => {
       await Promise.resolve();
-      if (claimed) return false;
+      if (claimed) return null;
       claimed = true;
-      return true;
+      return CLAIM_ID;
     });
     let finish: () => void = () => {};
     const careAi = {
@@ -173,7 +173,7 @@ describe("care AI: single-flight, missing fields, Perenual outage (review P1, P2
   it("gives the claim back after an unavailable answer, so the next visit can ask", async () => {
     const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
     await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "unavailable" }) }), ID);
-    expect(species.releaseAiCare).toHaveBeenCalledWith(ID);
+    expect(species.releaseAiCare).toHaveBeenCalledWith(ID, CLAIM_ID);
     expect(species.saveAiCare).not.toHaveBeenCalled();
   });
 
@@ -181,12 +181,28 @@ describe("care AI: single-flight, missing fields, Perenual outage (review P1, P2
     const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
     const careAi = { describe: vi.fn(async () => { throw new Error("boom"); }) };
     await expect(loadSpeciesPreview(deps({ species, careAi }), ID)).rejects.toThrow("boom");
-    expect(species.releaseAiCare).toHaveBeenCalledWith(ID);
+    expect(species.releaseAiCare).toHaveBeenCalledWith(ID, CLAIM_ID);
   });
 
   it("does not release a claim after a successful save", async () => {
     const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
     await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "ok", care: AI, model: "model-x" }) }), ID);
     expect(species.releaseAiCare).not.toHaveBeenCalled();
+  });
+
+  it("stores nothing and shows pending when its claim expired and another request took it", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }), aiClaimKept: false });
+    const careAi = fakeCareAi({ kind: "ok", care: AI, model: "model-x" });
+    const preview = await loadSpeciesPreview(deps({ species, careAi }), ID);
+    expect(species.saveAiCare).toHaveBeenCalledWith(ID, CLAIM_ID, { care: AI, model: "model-x" });
+    expect(species.releaseAiCare).not.toHaveBeenCalled();
+    expect(preview?.care).toEqual({ status: "pending" });
+  });
+
+  it("releases only its own claim (passes its claim id) after a failed call", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
+    species.claimAiCare.mockResolvedValueOnce("claim-a");
+    await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "quota" }) }), ID);
+    expect(species.releaseAiCare).toHaveBeenCalledWith(ID, "claim-a");
   });
 });
