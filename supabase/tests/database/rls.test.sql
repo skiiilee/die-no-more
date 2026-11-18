@@ -748,9 +748,46 @@ select is(
   'B cannot see A''s identification'
 );
 
+-- ---------------------------------------------------------------------------
+-- Care AI single-flight claim (20261118100000_ai_care.sql, PR #19 review P1)
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
+
+insert into public.plant_species (id, scientific_name_key, scientific_name, source)
+values ('70000000-0000-0000-0000-00000000000a', 'claim test', 'Claim test', 'perenual');
+
+select is(public.claim_care_ai('70000000-0000-0000-0000-00000000000a'), true,
+  'the first request takes the care AI claim');
+
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
+select is(public.claim_care_ai('70000000-0000-0000-0000-00000000000a'), false,
+  'a second request cannot claim while the first claim is live');
+
+update public.plant_species set care_ai_claimed_at = now() - interval '3 minutes'
+ where id = '70000000-0000-0000-0000-00000000000a';
+select is(public.claim_care_ai('70000000-0000-0000-0000-00000000000a'), true,
+  'a claim older than 2 minutes is treated as abandoned and can be taken');
+
+update public.plant_species set care_ai_claimed_at = null, care_ai_checked_at = now()
+ where id = '70000000-0000-0000-0000-00000000000a';
+select is(public.claim_care_ai('70000000-0000-0000-0000-00000000000a'), false,
+  'a species already asked is never claimed again');
+
+select is(public.claim_care_ai('70000000-0000-0000-0000-0000000000ff'), false,
+  'an unknown species cannot be claimed');
+
 reset role;
 set local role anon;
 select set_config('request.jwt.claims', '{"role": "anon"}', true);
+select throws_ok(
+  $$ select public.claim_care_ai('70000000-0000-0000-0000-00000000000a') $$,
+  '42501', null,
+  'anon cannot claim a care AI call'
+);
 select throws_ok(
   $$ select * from public.search_species('ficus') $$,
   '42501', null,

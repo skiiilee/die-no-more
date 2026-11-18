@@ -93,7 +93,7 @@ function missingFields(perenual: PerenualCare | null): CareField[] {
  * - a checked species reads its stored values;
  * - nothing is asked when no field is missing, or when the AI is not configured;
  * - only one request at a time may ask (claim, review P1): a request that loses
- *   the claim gets no AI values for now and the winner stores them;
+ *   the claim gets "busy" (shown as pending) and the winner stores the values;
  * - a failed call gives the claim back, so the next visit asks again;
  * - an empty answer is marked as asked and stores nothing.
  */
@@ -101,11 +101,11 @@ async function ensureAiCare(
   deps: PreviewDeps,
   record: SpeciesRecord,
   missing: CareField[],
-): Promise<{ care: AiCare; model: string } | null> {
+): Promise<{ care: AiCare; model: string } | "busy" | null> {
   if (record.careAiCheckedAt) return (await deps.species.getAiCare(record.id)) ?? null;
   const ai = deps.careAi;
   if (!ai || missing.length === 0) return null;
-  if (!(await deps.species.claimAiCare(record.id))) return null;
+  if (!(await deps.species.claimAiCare(record.id))) return "busy";
   try {
     const answer = await ai.describe(record.scientificName, missing);
     if (answer.kind === "quota" || answer.kind === "unavailable") {
@@ -128,15 +128,17 @@ async function ensureAiCare(
  * Perenual and the care AI are looked up separately (review P1): a Perenual
  * outage no longer blocks the AI, and stored AI values are shown even while
  * Perenual is pending. Pending only when neither source has a value and
- * Perenual could not be asked.
+ * Perenual could not be asked, or another request is asking the AI right now
+ * (its values will be there on the next visit, so "none" would be wrong).
  */
 async function ensureCare(deps: PreviewDeps, record: SpeciesRecord): Promise<SpeciesPreview["care"]> {
   const status = record.careStatus ?? (await lookUpCare(deps, record));
   const perenual = status === "available" ? await deps.species.getCare(record.id) : null;
-  const ai = await ensureAiCare(deps, record, missingFields(perenual));
+  const answer = await ensureAiCare(deps, record, missingFields(perenual));
+  const ai = answer === "busy" ? null : answer;
   const facts = mergeCareFacts(perenual, ai?.care ?? null, ai?.model ?? null);
   if (facts) return { status: "available", facts };
-  return status === null ? { status: "pending" } : { status: "none" };
+  return status === null || answer === "busy" ? { status: "pending" } : { status: "none" };
 }
 
 export async function loadSpeciesPreview(deps: PreviewDeps, id: string): Promise<SpeciesPreview | null> {
