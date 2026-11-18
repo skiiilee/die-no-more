@@ -1,9 +1,9 @@
 import type { SpeciesStore } from "@/repo/species-repo";
-import type { AiCare, CareStatus, SpeciesPreview, SpeciesRecord } from "@/types/species";
+import { AI_CARE_FIELDS, type AiCare, type CareField, type CareStatus, type PerenualCare, type SpeciesPreview, type SpeciesRecord } from "@/types/species";
 import type { CareAiAdapter } from "./adapters/care-ai";
 import type { PerenualAdapter } from "./adapters/perenual";
 import type { TrefleAdapter } from "./adapters/trefle";
-import { mergeCareFacts } from "./care-labels";
+import { careFacts, mergeCareFacts } from "./care-labels";
 import { scientificNameKey } from "./species-search";
 
 /**
@@ -82,32 +82,61 @@ async function lookUpCare(deps: PreviewDeps, record: SpeciesRecord): Promise<Car
   return status;
 }
 
-/**
- * The care AI values for the species. Asked once (ADR-0005 D2): a checked
- * species reads its stored values, a failed call is not marked and is asked
- * again on the next visit. An empty answer is marked as asked and stores nothing.
- */
-async function ensureAiCare(deps: PreviewDeps, record: SpeciesRecord): Promise<{ care: AiCare; model: string } | null> {
-  if (record.careAiCheckedAt) return (await deps.species.getAiCare(record.id)) ?? null;
-  const ai = deps.careAi;
-  if (!ai) return null;
-  const answer = await ai.describe(record.scientificName);
-  if (answer.kind === "quota" || answer.kind === "unavailable") return null;
-  if (answer.kind === "none") {
-    await deps.species.saveAiCare(record.id, { care: null, model: null });
-    return null;
-  }
-  await deps.species.saveAiCare(record.id, { care: answer.care, model: answer.model });
-  return { care: answer.care, model: answer.model };
+/** Care fields the provider did not fill: only these are asked of the care AI (ADR-0005 D2). */
+function missingFields(perenual: PerenualCare | null): CareField[] {
+  const facts = perenual ? careFacts(perenual) : null;
+  return AI_CARE_FIELDS.filter((field) => facts === null || facts[field] === null);
 }
 
+/**
+ * The care AI values for the species. Asked once per species (ADR-0005 D2):
+ * - a checked species reads its stored values;
+ * - nothing is asked when no field is missing, or when the AI is not configured;
+ * - only one request at a time may ask (claim, review P1): a request that loses
+ *   the claim gets no AI values for now and the winner stores them;
+ * - a failed call gives the claim back, so the next visit asks again;
+ * - an empty answer is marked as asked and stores nothing.
+ */
+async function ensureAiCare(
+  deps: PreviewDeps,
+  record: SpeciesRecord,
+  missing: CareField[],
+): Promise<{ care: AiCare; model: string } | null> {
+  if (record.careAiCheckedAt) return (await deps.species.getAiCare(record.id)) ?? null;
+  const ai = deps.careAi;
+  if (!ai || missing.length === 0) return null;
+  if (!(await deps.species.claimAiCare(record.id))) return null;
+  try {
+    const answer = await ai.describe(record.scientificName, missing);
+    if (answer.kind === "quota" || answer.kind === "unavailable") {
+      await deps.species.releaseAiCare(record.id);
+      return null;
+    }
+    if (answer.kind === "none") {
+      await deps.species.saveAiCare(record.id, { care: null, model: null });
+      return null;
+    }
+    await deps.species.saveAiCare(record.id, { care: answer.care, model: answer.model });
+    return { care: answer.care, model: answer.model };
+  } catch (error) {
+    await deps.species.releaseAiCare(record.id);
+    throw error;
+  }
+}
+
+/**
+ * Perenual and the care AI are looked up separately (review P1): a Perenual
+ * outage no longer blocks the AI, and stored AI values are shown even while
+ * Perenual is pending. Pending only when neither source has a value and
+ * Perenual could not be asked.
+ */
 async function ensureCare(deps: PreviewDeps, record: SpeciesRecord): Promise<SpeciesPreview["care"]> {
   const status = record.careStatus ?? (await lookUpCare(deps, record));
-  if (status === null) return { status: "pending" };
   const perenual = status === "available" ? await deps.species.getCare(record.id) : null;
-  const ai = await ensureAiCare(deps, record);
+  const ai = await ensureAiCare(deps, record, missingFields(perenual));
   const facts = mergeCareFacts(perenual, ai?.care ?? null, ai?.model ?? null);
-  return facts ? { status: "available", facts } : { status: "none" };
+  if (facts) return { status: "available", facts };
+  return status === null ? { status: "pending" } : { status: "none" };
 }
 
 export async function loadSpeciesPreview(deps: PreviewDeps, id: string): Promise<SpeciesPreview | null> {

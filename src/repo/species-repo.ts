@@ -41,6 +41,13 @@ export type SpeciesStore = {
    * and the time it was asked. An empty answer stores no values but still counts as asked.
    */
   saveAiCare(id: string, answer: { care: AiCare | null; model: string | null }): Promise<void>;
+  /**
+   * Takes the right to ask the care AI for this species (single-flight, review P1).
+   * False when the species is already checked or another request holds a live claim.
+   */
+  claimAiCare(id: string): Promise<boolean>;
+  /** Gives the claim back after a failed call, so the next visit can ask again. */
+  releaseAiCare(id: string): Promise<void>;
 };
 
 const COLUMNS =
@@ -304,8 +311,26 @@ export function supabaseSpeciesStore(client: SupabaseServerClient): SpeciesStore
           if (error) throw new PlantStoreError("saveAiCare values", { cause: error });
         }
       }
-      const { error } = await client.from("plant_species").update({ care_ai_checked_at: now }).eq("id", id);
+      const { error } = await client
+        .from("plant_species")
+        .update({ care_ai_checked_at: now, care_ai_claimed_at: null })
+        .eq("id", id);
       if (error) throw new PlantStoreError("saveAiCare status", { cause: error });
+    },
+
+    async claimAiCare(id) {
+      const { data, error } = await client.rpc("claim_care_ai", { p_species_id: id });
+      if (error) throw new PlantStoreError("claimAiCare", { cause: error });
+      return data === true;
+    },
+
+    async releaseAiCare(id) {
+      const { error } = await client
+        .from("plant_species")
+        .update({ care_ai_claimed_at: null })
+        .eq("id", id)
+        .is("care_ai_checked_at", null);
+      if (error) throw new PlantStoreError("releaseAiCare", { cause: error });
     },
   };
 }

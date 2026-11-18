@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { AiCare, PerenualCare } from "@/types/species";
+import { describe, expect, it, vi } from "vitest";
+import { AI_CARE_FIELDS, type AiCare, type PerenualCare } from "@/types/species";
 import { careFacts } from "./care-labels";
 import { loadSpeciesPreview, type PreviewDeps } from "./species-preview";
 import { fakeCareAi, fakePerenual, fakeSpeciesStore, fakeTrefle, providerSpecies, record } from "../../tests/fakes/species";
@@ -199,7 +199,7 @@ describe("care AI fill (ADR-0005)", () => {
     const species = fakeSpeciesStore({ record: record({ careStatus: "outside_free_range" }) });
     const careAi = fakeCareAi({ kind: "ok", care: AI, model: "model-x" });
     const preview = await loadSpeciesPreview(deps({ species, careAi }), ID);
-    expect(careAi.describe).toHaveBeenCalledWith("Ficus elastica");
+    expect(careAi.describe).toHaveBeenCalledWith("Ficus elastica", AI_CARE_FIELDS);
     expect(species.saveAiCare).toHaveBeenCalledWith(ID, { care: AI, model: "model-x" });
     expect(preview?.care).toEqual({
       status: "available",
@@ -267,5 +267,57 @@ describe("care AI fill (ADR-0005)", () => {
     const preview = await loadSpeciesPreview(deps({ species, careAi: null }), ID);
     expect(species.saveAiCare).not.toHaveBeenCalled();
     expect(preview?.care).toEqual({ status: "none" });
+  });
+});
+
+describe("care AI: single-flight, missing fields, Perenual outage (review P1, P2)", () => {
+  it("shows AI values when Perenual could not be asked (status unknown), instead of pending", async () => {
+    const species = fakeSpeciesStore({ record: record({ perenualId: null }) });
+    const careAi = fakeCareAi({ kind: "ok", care: AI, model: "model-x" });
+    const preview = await loadSpeciesPreview(deps({ species, careAi, perenual: null }), ID);
+    expect(preview?.care).toMatchObject({ status: "available", facts: { light: "밝은 간접광" } });
+    expect(careAi.describe).toHaveBeenCalled();
+  });
+
+  it("stays pending when Perenual could not be asked and the AI has nothing", async () => {
+    const species = fakeSpeciesStore({ record: record({ perenualId: null }) });
+    const preview = await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "none", model: "model-x" }), perenual: null }), ID);
+    expect(preview?.care).toEqual({ status: "pending" });
+  });
+
+  it("asks only for the fields Perenual left empty", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "available" }), care: CARE });
+    const careAi = fakeCareAi({ kind: "none", model: "model-x" });
+    await loadSpeciesPreview(deps({ species, careAi }), ID);
+    expect(careAi.describe).toHaveBeenCalledWith("Ficus elastica", ["temperature", "soil", "fertilizer"]);
+  });
+
+  it("makes no AI call when the claim belongs to another request, and stores nothing", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }), aiClaim: false });
+    const careAi = fakeCareAi({ kind: "ok", care: AI, model: "model-x" });
+    const preview = await loadSpeciesPreview(deps({ species, careAi }), ID);
+    expect(careAi.describe).not.toHaveBeenCalled();
+    expect(species.saveAiCare).not.toHaveBeenCalled();
+    expect(preview?.care).toEqual({ status: "none" });
+  });
+
+  it("gives the claim back after an unavailable answer, so the next visit can ask", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
+    await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "unavailable" }) }), ID);
+    expect(species.releaseAiCare).toHaveBeenCalledWith(ID);
+    expect(species.saveAiCare).not.toHaveBeenCalled();
+  });
+
+  it("gives the claim back when the call throws", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
+    const careAi = { describe: vi.fn(async () => { throw new Error("boom"); }) };
+    await expect(loadSpeciesPreview(deps({ species, careAi }), ID)).rejects.toThrow("boom");
+    expect(species.releaseAiCare).toHaveBeenCalledWith(ID);
+  });
+
+  it("does not release a claim after a successful save", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
+    await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "ok", care: AI, model: "model-x" }) }), ID);
+    expect(species.releaseAiCare).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HttpCall, HttpResult, ProviderJsonClient } from "./http";
-import { careAi, careAiUsage, parseCareAnswer } from "./care-ai";
+import { AI_CARE_FIELDS } from "@/types/species";
+import { buildPrompt, careAi, careAiUsage, parseCareAnswer } from "./care-ai";
 
 const CONFIG = { baseUrl: "https://ai.example.test/v1", key: "secret-key", model: "model-x" };
 
@@ -74,7 +75,7 @@ describe("parseCareAnswer", () => {
 describe("careAi", () => {
   it("sends one JSON chat request with the key in a header, never in the URL", async () => {
     const { client, postJson } = clientReturning(response(200, chat(JSON.stringify(VALID))));
-    await careAi(client, CONFIG).describe("Ficus elastica");
+    await careAi(client, CONFIG).describe("Ficus elastica", AI_CARE_FIELDS);
     const [url, json, headers, operation] = postJson.mock.calls[0] as unknown as [string, { model: string; messages: { content: string }[] }, Record<string, string>, string];
     expect(url).toBe("https://ai.example.test/v1/chat/completions");
     expect(url).not.toContain("secret-key");
@@ -86,30 +87,30 @@ describe("careAi", () => {
 
   it("returns ok with the configured model name, for provenance (ADR-0005 D4)", async () => {
     const { client } = clientReturning(response(200, chat(JSON.stringify(VALID))));
-    const answer = await careAi(client, CONFIG).describe("Ficus elastica");
+    const answer = await careAi(client, CONFIG).describe("Ficus elastica", AI_CARE_FIELDS);
     expect(answer).toMatchObject({ kind: "ok", model: "model-x", care: { light: "밝은 간접광" } });
   });
 
   it("returns none when every value is empty", async () => {
     const empty = Object.fromEntries(Object.keys(VALID).map((key) => [key, null]));
     const { client } = clientReturning(response(200, chat(JSON.stringify(empty))));
-    expect(await careAi(client, CONFIG).describe("Unknown plant")).toEqual({ kind: "none", model: "model-x" });
+    expect(await careAi(client, CONFIG).describe("Unknown plant", AI_CARE_FIELDS)).toEqual({ kind: "none", model: "model-x" });
   });
 
   it("returns unavailable for a 200 whose content is not the expected JSON", async () => {
     const { client } = clientReturning(response(200, chat("sorry, I cannot")));
-    expect(await careAi(client, CONFIG).describe("Ficus elastica")).toEqual({ kind: "unavailable" });
+    expect(await careAi(client, CONFIG).describe("Ficus elastica", AI_CARE_FIELDS)).toEqual({ kind: "unavailable" });
   });
 
   it("maps our own daily cap to quota, and a cooldown or network failure to unavailable", async () => {
     const quota = clientReturning({ kind: "blocked", reason: "limit" });
-    expect(await careAi(quota.client, CONFIG).describe("x")).toEqual({ kind: "quota" });
+    expect(await careAi(quota.client, CONFIG).describe("x", AI_CARE_FIELDS)).toEqual({ kind: "quota" });
     const cooldown = clientReturning({ kind: "blocked", reason: "cooldown" });
-    expect(await careAi(cooldown.client, CONFIG).describe("x")).toEqual({ kind: "unavailable" });
+    expect(await careAi(cooldown.client, CONFIG).describe("x", AI_CARE_FIELDS)).toEqual({ kind: "unavailable" });
     const network = clientReturning({ kind: "failed", reason: "network" });
-    expect(await careAi(network.client, CONFIG).describe("x")).toEqual({ kind: "unavailable" });
+    expect(await careAi(network.client, CONFIG).describe("x", AI_CARE_FIELDS)).toEqual({ kind: "unavailable" });
     const limited = clientReturning(response(429, { error: "rate" }));
-    expect(await careAi(limited.client, CONFIG).describe("x")).toEqual({ kind: "unavailable" });
+    expect(await careAi(limited.client, CONFIG).describe("x", AI_CARE_FIELDS)).toEqual({ kind: "unavailable" });
   });
 });
 
@@ -124,5 +125,29 @@ describe("careAiUsage", () => {
   it("records success and server errors plainly", () => {
     expect(careAiUsage(response(200, {}))).toEqual({ status: "success", retryAt: null });
     expect(careAiUsage(response(503, {}))).toEqual({ status: "failure", retryAt: null });
+  });
+});
+
+describe("requested fields only (review P2)", () => {
+  it("lists only the requested fields in the prompt", () => {
+    const prompt = buildPrompt(["temperature", "soil"]);
+    expect(prompt).toContain('"temperature"');
+    expect(prompt).toContain('"soil"');
+    expect(prompt).not.toContain('"light"');
+    expect(prompt).not.toContain("toxicity: ");
+  });
+
+  it("keeps only the requested fields from the answer", () => {
+    const care = parseCareAnswer(chat(JSON.stringify(VALID)), ["soil"]);
+    expect(care?.soil).toBe("배수가 좋은 흙");
+    expect(care?.light).toBeNull();
+    expect(care?.careLevel).toBeNull();
+    expect(care?.wateringBenchmark).toBeNull();
+  });
+
+  it("makes no call when no field is requested", async () => {
+    const { client, postJson } = clientReturning(response(200, chat("{}")));
+    expect(await careAi(client, CONFIG).describe("Ficus elastica", [])).toEqual({ kind: "none", model: "model-x" });
+    expect(postJson).not.toHaveBeenCalled();
   });
 });

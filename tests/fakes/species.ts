@@ -54,6 +54,8 @@ export function fakeSpeciesStore(
     record?: SpeciesRecord | null;
     care?: PerenualCare | null;
     aiCare?: { care: AiCare; model: string } | null;
+    /** Whether this request wins the care AI claim (default true). */
+    aiClaim?: boolean;
     dropKeys?: string[];
   } = {},
 ) {
@@ -84,6 +86,8 @@ export function fakeSpeciesStore(
     saveCare: vi.fn(async () => {}),
     getAiCare: vi.fn(async () => options.aiCare ?? null),
     saveAiCare: vi.fn(async () => {}),
+    claimAiCare: vi.fn(async () => options.aiClaim ?? true),
+    releaseAiCare: vi.fn(async () => {}),
   } satisfies SpeciesStore;
   return store;
 }
