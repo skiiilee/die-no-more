@@ -36,6 +36,29 @@ function setup(responses: (number | "network" | "timeout")[], options: { start?:
   return { client, fetchImpl };
 }
 
+describe("httpClient attempt cap (ADR-0005 D6)", () => {
+  async function timeoutsFor(options: { attemptMaxMs?: number }) {
+    const timeouts: number[] = [];
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return new AbortController().signal;
+    });
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
+    await httpClient({ deadline: 25_000, fetchImpl, now: () => 0, ...options }).get("https://example.test");
+    spy.mockRestore();
+    return timeouts;
+  }
+
+  it("caps an attempt at 10 s by default", async () => {
+    expect(await timeoutsFor({})).toEqual([10_000]);
+  });
+
+  it("lets a slow provider's own budget raise the cap, still keeping the 5 s reserve", async () => {
+    expect(await timeoutsFor({ attemptMaxMs: 30_000 })).toEqual([20_000]);
+    expect(await timeoutsFor({ attemptMaxMs: 15_000 })).toEqual([15_000]);
+  });
+});
+
 describe("httpClient (ADR-0003 D7)", () => {
   it("returns the first good answer without retrying", async () => {
     const { client, fetchImpl } = setup([200]);

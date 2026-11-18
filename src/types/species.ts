@@ -99,10 +99,19 @@ export type SpeciesPreview = {
    * available: at least one care fact, from Perenual and/or the care AI
    *   (`facts.aiFields` lists the AI ones, ADR-0005 D5).
    * none: no care data from either source: no water reminder, S13 '직접 입력하기' (approved 2026-11-12).
-   * pending: Perenual could not be asked right now; try again later.
+   * pending: Perenual could not be asked right now, or another request is asking
+ *   the care AI; try again later.
    */
-  care: { status: "available"; facts: CareFacts } | { status: "none" } | { status: "pending" };
+  care: SpeciesCare;
+  /**
+   * Fields the care AI will be asked for after the screen is shown (ADR-0005
+   * D6): the ones still empty, when the AI is configured and this species was
+   * not asked yet. Empty: no AI step on this view.
+   */
+  aiFill: CareField[];
 };
+
+export type SpeciesCare = { status: "available"; facts: CareFacts } | { status: "none" } | { status: "pending" };
 
 /** Fields the care AI may fill (ADR-0005 D3). Toxicity is never asked. */
 export const AI_CARE_FIELDS = [

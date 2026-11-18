@@ -1,11 +1,15 @@
 import Link from "next/link";
-import type { CareField, CareFacts, SpeciesPreview } from "@/types/species";
+import { Suspense, use } from "react";
+import type { CareField, CareFacts, SpeciesCare, SpeciesPreview } from "@/types/species";
+import { Spinner } from "@/ui/shell/Spinner";
 import { SpeciesPhoto } from "./SpeciesPhoto";
 import styles from "./plants.module.css";
 
 const NO_INFO = "정보 없음";
+const LOADING = "불러오는 중…";
 
-function FactList({ facts }: { facts: CareFacts | null }) {
+/** `loading`: fields the care AI is being asked for right now (shown as 불러오는 중). */
+function FactList({ facts, loading }: { facts: CareFacts | null; loading: CareField[] }) {
   const rows: [string, CareField, string | null][] = [
     ["관리 난이도", "careLevel", facts?.careLevel ?? null],
     ["빛 환경", "light", facts?.light ?? null],
@@ -23,7 +27,7 @@ function FactList({ facts }: { facts: CareFacts | null }) {
         <div key={label} className={styles.factRow}>
           <dt>{label}</dt>
           <dd>
-            {value ?? NO_INFO}
+            {value ?? (loading.includes(field) ? LOADING : NO_INFO)}
             {value !== null && facts?.aiFields.includes(field) ? <span className={styles.aiMark}>AI 생성</span> : null}
           </dd>
         </div>
@@ -32,7 +36,7 @@ function FactList({ facts }: { facts: CareFacts | null }) {
   );
 }
 
-function CareNote({ care }: { care: SpeciesPreview["care"] }) {
+function CareNote({ care }: { care: SpeciesCare }) {
   if (care.status === "none") {
     return (
       <p className={styles.note}>
@@ -55,6 +59,28 @@ function CareNote({ care }: { care: SpeciesPreview["care"] }) {
   return <p className={styles.note}>관리 정보 출처: Perenual. 화분 환경에 따라 다를 수 있습니다.</p>;
 }
 
+/** The facts table and its source note, for the care as known now. */
+function CareBlock({ care, loading = [] }: { care: SpeciesCare; loading?: CareField[] }) {
+  return (
+    <>
+      <FactList facts={care.status === "available" ? care.facts : null} loading={loading} />
+      {loading.length > 0 ? (
+        <p className={`${styles.note} ${styles.aiLoading}`} role="status">
+          <Spinner />
+          비어 있는 항목을 AI 참고 정보로 찾는 중입니다. 몇 초 걸릴 수 있습니다.
+        </p>
+      ) : (
+        <CareNote care={care} />
+      )}
+    </>
+  );
+}
+
+/** The care once the care AI step is done (ADR-0005 D6). */
+function StreamedCare({ care }: { care: Promise<SpeciesCare> }) {
+  return <CareBlock care={use(care)} />;
+}
+
 /**
  * S04-B 식물 정보 확인 (wireframe pages 13–14). Shows only what providers
  * returned; empty items say '정보 없음' and nothing is generated (03 §3-6).
@@ -69,7 +95,19 @@ function backHrefFor(back: PreviewBack): string {
   return "/plants/new";
 }
 
-export function SpeciesPreviewScreen({ preview, back }: { preview: SpeciesPreview; back: PreviewBack }) {
+/**
+ * `aiCare`: the care AI step, when `preview.aiFill` is not empty. The screen
+ * shows at once with those fields as 불러오는 중, and they fill in when it ends.
+ */
+export function SpeciesPreviewScreen({
+  preview,
+  back,
+  aiCare = null,
+}: {
+  preview: SpeciesPreview;
+  back: PreviewBack;
+  aiCare?: Promise<SpeciesCare> | null;
+}) {
   const name = preview.koreanName ?? preview.scientificName;
   const backHref = backHrefFor(back);
   const addHref = `/plants/new/register?${new URLSearchParams({ mode: "species", species: preview.id }).toString()}`;
@@ -96,8 +134,13 @@ export function SpeciesPreviewScreen({ preview, back }: { preview: SpeciesPrevie
             {preview.koreanName ? <p className={styles.scientificSub}>{preview.scientificName}</p> : null}
           </div>
           <h2 className={styles.cardTitle}>기본 정보</h2>
-          <FactList facts={preview.care.status === "available" ? preview.care.facts : null} />
-          <CareNote care={preview.care} />
+          {aiCare ? (
+            <Suspense fallback={<CareBlock care={preview.care} loading={preview.aiFill} />}>
+              <StreamedCare care={aiCare} />
+            </Suspense>
+          ) : (
+            <CareBlock care={preview.care} />
+          )}
         </div>
       </div>
 

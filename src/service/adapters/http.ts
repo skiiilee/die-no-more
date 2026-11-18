@@ -80,8 +80,18 @@ async function attempt(fetchImpl: FetchLike, request: HttpRequest, timeoutMs: nu
   }
 }
 
-/** A client for one request. Every call shares the same deadline. */
-export function httpClient(options: { deadline: number; fetchImpl?: FetchLike; now?: Clock }): HttpClient {
+/**
+ * A client for one request. Every call shares the same deadline. `attemptMaxMs`
+ * overrides the 10 s attempt cap for a slow provider with its own budget (the
+ * care AI step of S04-B, ADR-0005 D6).
+ */
+export function httpClient(options: {
+  deadline: number;
+  attemptMaxMs?: number;
+  fetchImpl?: FetchLike;
+  now?: Clock;
+}): HttpClient {
+  const attemptMax = options.attemptMaxMs ?? ATTEMPT_MAX_MS;
   const fetchImpl: FetchLike = options.fetchImpl ?? ((url, init) => fetch(url, { ...init, cache: "no-store" }));
   const now = options.now ?? Date.now;
   const timeLeft = () => options.deadline - now();
@@ -90,7 +100,7 @@ export function httpClient(options: { deadline: number; fetchImpl?: FetchLike; n
     let attempts = 0;
     let result: HttpResult = { kind: "failed", reason: "timeout" };
     while (attempts < 2) {
-      const timeout = Math.min(ATTEMPT_MAX_MS, timeLeft() - RESERVE_MS);
+      const timeout = Math.min(attemptMax, timeLeft() - RESERVE_MS);
       if (timeout <= 0) break;
       const opened = gate ? await gate.open() : null;
       if (opened && !opened.ok) {

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QUOTA_MESSAGE, SpeciesResults } from "./SpeciesResults";
+import type { SpeciesCare, SpeciesPreview } from "@/types/species";
 import { SpeciesPreviewScreen } from "./SpeciesPreviewScreen";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -90,6 +91,7 @@ describe("S04-B 식물 정보 확인", () => {
               aiModel: null,
             },
           },
+          aiFill: [],
         }}
       />,
     );
@@ -115,6 +117,7 @@ describe("S04-B 식물 정보 확인", () => {
           imageUrl: null,
           imageCredit: null,
           care: { status: "none" },
+          aiFill: [],
         }}
       />,
     );
@@ -135,6 +138,7 @@ describe("S04-B 식물 정보 확인", () => {
           imageUrl: "https://bs.plantnet.org/image/m/abc",
           imageCredit: "Soynano Gallego / Pl@ntNet, cc-by-sa",
           care: { status: "none" },
+          aiFill: [],
         }}
       />,
     );
@@ -144,3 +148,64 @@ describe("S04-B 식물 정보 확인", () => {
     expect(screen.getByText("사진: Soynano Gallego / Pl@ntNet, cc-by-sa")).toBeTruthy();
   });
 });
+
+describe("S04-B care AI step (ADR-0005 D6)", () => {
+  const FACTS = {
+    careLevel: "보통",
+    light: "반그늘",
+    watering: "보통",
+    wateringInterval: "7~10일",
+    temperature: null,
+    soil: null,
+    fertilizer: null,
+    description: "The Indian Rubberplant is a houseplant.",
+    aiFields: [],
+    aiModel: null,
+  };
+  const preview: SpeciesPreview = {
+    id: ID,
+    koreanName: "고무나무",
+    scientificName: "Ficus elastica",
+    imageUrl: null,
+    imageCredit: null,
+    care: { status: "available", facts: FACTS },
+    aiFill: ["temperature", "soil", "fertilizer"],
+  };
+
+  it("shows Perenual values at once with the AI fields loading, then fills them in with the AI mark", async () => {
+    let resolve: (care: SpeciesCare) => void = () => {};
+    const aiCare = new Promise<SpeciesCare>((done) => {
+      resolve = done;
+    });
+    await act(async () => {
+      render(<SpeciesPreviewScreen back={null} preview={preview} aiCare={aiCare} />);
+    });
+    expect(screen.getByText("반그늘")).toBeTruthy();
+    expect(screen.getAllByText("불러오는 중…")).toHaveLength(3);
+    expect(screen.getByRole("status").textContent).toContain("AI 참고 정보로 찾는 중");
+    expect(screen.queryByText("정보 없음")).toBeNull();
+
+    await act(async () => {
+      resolve({
+        status: "available",
+        facts: { ...FACTS, temperature: "18~25도", soil: "배수가 좋은 흙", aiFields: ["temperature", "soil"], aiModel: "model-x" },
+      });
+      await aiCare;
+    });
+    expect(screen.getByText("18~25도")).toBeTruthy();
+    expect(screen.getAllByText("AI 생성")).toHaveLength(2);
+    expect(screen.queryByText("불러오는 중…")).toBeNull();
+    expect(screen.getAllByText("정보 없음")).toHaveLength(1);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText(/AI\(model-x\)가 만든/)).toBeTruthy();
+  });
+
+  it("keeps the first step's values when the AI step ends with nothing", async () => {
+    await act(async () => {
+      render(<SpeciesPreviewScreen back={null} preview={preview} aiCare={Promise.resolve(preview.care)} />);
+    });
+    expect(screen.getAllByText("정보 없음")).toHaveLength(3);
+    expect(screen.getByText("관리 정보 출처: Perenual. 화분 환경에 따라 다를 수 있습니다.")).toBeTruthy();
+  });
+});
+

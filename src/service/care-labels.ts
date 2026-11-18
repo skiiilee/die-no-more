@@ -92,21 +92,27 @@ function aiValues(ai: AiCare): Values {
 }
 
 /**
- * Perenual values first; the care AI fills only the fields Perenual left empty
- * (ADR-0005 D2, D5), and those fields are listed in `aiFields`. Null when
- * neither source has any value.
+ * Fills the fields `base` left empty with the care AI values (ADR-0005 D2, D5)
+ * and adds them to `aiFields`; values already in `base` are kept. Null when
+ * neither has any value.
  */
-export function mergeCareFacts(perenual: PerenualCare | null, ai: AiCare | null, aiModel: string | null): CareFacts | null {
-  const p: Values = perenual ? careFacts(perenual) : EMPTY_VALUES;
+export function fillCareFacts(base: CareFacts | null, ai: AiCare | null, aiModel: string | null): CareFacts | null {
   const a: Values = ai ? aiValues(ai) : EMPTY_VALUES;
-  const merged: Values = { ...p };
-  const aiFields: CareField[] = [];
+  const merged: Values = { ...EMPTY_VALUES };
+  const aiFields: CareField[] = [...(base?.aiFields ?? [])];
   for (const field of AI_CARE_FIELDS) {
+    merged[field] = base?.[field] ?? null;
     if (merged[field] === null && a[field] !== null) {
       merged[field] = a[field];
       aiFields.push(field);
     }
   }
   const hasAny = AI_CARE_FIELDS.some((field) => merged[field] !== null);
-  return hasAny ? { ...merged, aiFields, aiModel: aiFields.length > 0 ? aiModel : null } : null;
+  if (!hasAny) return null;
+  return { ...merged, aiFields, aiModel: aiFields.length > 0 ? (aiModel ?? base?.aiModel ?? null) : null };
+}
+
+/** Perenual values first; the care AI fills only the fields Perenual left empty. */
+export function mergeCareFacts(perenual: PerenualCare | null, ai: AiCare | null, aiModel: string | null): CareFacts | null {
+  return fillCareFacts(perenual ? careFacts(perenual) : null, ai, aiModel);
 }
