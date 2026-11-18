@@ -82,7 +82,12 @@ describe("S04-B 식물 정보 확인", () => {
               light: null,
               watering: "보통",
               wateringInterval: "7~10일",
+              temperature: null,
+              soil: null,
+              fertilizer: null,
               description: "The Indian Rubberplant is a houseplant.",
+              aiFields: [],
+              aiModel: null,
             },
           },
         }}
@@ -92,7 +97,7 @@ describe("S04-B 식물 정보 확인", () => {
     expect(screen.getByText("Ficus elastica")).toBeTruthy();
     expect(screen.getByText("7~10일")).toBeTruthy();
     expect(screen.getByText("The Indian Rubberplant is a houseplant.")).toBeTruthy();
-    expect(screen.getAllByText("정보 없음")).toHaveLength(1);
+    expect(screen.getAllByText("정보 없음")).toHaveLength(4);
     expect(screen.getByRole("link", { name: "이 식물 추가하기" }).getAttribute("href")).toBe(
       `/plants/new/register?mode=species&species=${ID}`,
     );
@@ -115,7 +120,7 @@ describe("S04-B 식물 정보 확인", () => {
     );
     expect(screen.getByRole("heading", { level: 1, name: "Monstera deliciosa" })).toBeTruthy();
     expect(screen.getByText(/이 식물의 관리 정보가 없습니다/)).toBeTruthy();
-    expect(screen.getAllByText("정보 없음")).toHaveLength(5);
+    expect(screen.getAllByText("정보 없음")).toHaveLength(8);
     expect(screen.getByRole("link", { name: "뒤로" }).getAttribute("href")).toBe("/plants/new");
   });
 

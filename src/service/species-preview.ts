@@ -1,8 +1,9 @@
 import type { SpeciesStore } from "@/repo/species-repo";
-import type { CareStatus, SpeciesPreview, SpeciesRecord } from "@/types/species";
+import type { AiCare, CareStatus, SpeciesPreview, SpeciesRecord } from "@/types/species";
+import type { CareAiAdapter } from "./adapters/care-ai";
 import type { PerenualAdapter } from "./adapters/perenual";
 import type { TrefleAdapter } from "./adapters/trefle";
-import { careFacts } from "./care-labels";
+import { mergeCareFacts } from "./care-labels";
 import { scientificNameKey } from "./species-search";
 
 /**
@@ -12,6 +13,8 @@ import { scientificNameKey } from "./species-search";
  *   not connected yet, so a species without one shows its scientific name.
  * - Perenual care values (D16). IDs above 3000 are outside the free range and
  *   are not requested; the screen offers S13 instead (approved 2026-11-12).
+ * - Care AI (ADR-0005): fills the care fields Perenual leaves empty. Asked once
+ *   per species; its values are stored with the model name and marked 'AI 생성'.
  * Only a well-formed answer is stored. Failures, caps, back-off and malformed
  * bodies leave the row unchecked so the next visit tries again.
  */
@@ -20,6 +23,8 @@ export type PreviewDeps = {
   species: SpeciesStore;
   perenual: PerenualAdapter | null;
   trefle: TrefleAdapter | null;
+  /** Null when the care AI is not configured (ADR-0005 D1). */
+  careAi: CareAiAdapter | null;
 };
 
 /** Finds a provider ID by exact scientific-name key (D10), never by a similar name. */
@@ -77,12 +82,32 @@ async function lookUpCare(deps: PreviewDeps, record: SpeciesRecord): Promise<Car
   return status;
 }
 
+/**
+ * The care AI values for the species. Asked once (ADR-0005 D2): a checked
+ * species reads its stored values, a failed call is not marked and is asked
+ * again on the next visit. An empty answer is marked as asked and stores nothing.
+ */
+async function ensureAiCare(deps: PreviewDeps, record: SpeciesRecord): Promise<{ care: AiCare; model: string } | null> {
+  if (record.careAiCheckedAt) return (await deps.species.getAiCare(record.id)) ?? null;
+  const ai = deps.careAi;
+  if (!ai) return null;
+  const answer = await ai.describe(record.scientificName);
+  if (answer.kind === "quota" || answer.kind === "unavailable") return null;
+  if (answer.kind === "none") {
+    await deps.species.saveAiCare(record.id, { care: null, model: null });
+    return null;
+  }
+  await deps.species.saveAiCare(record.id, { care: answer.care, model: answer.model });
+  return { care: answer.care, model: answer.model };
+}
+
 async function ensureCare(deps: PreviewDeps, record: SpeciesRecord): Promise<SpeciesPreview["care"]> {
   const status = record.careStatus ?? (await lookUpCare(deps, record));
   if (status === null) return { status: "pending" };
-  if (status !== "available") return { status: "none" };
-  const care = await deps.species.getCare(record.id);
-  return care ? { status: "available", facts: careFacts(care) } : { status: "none" };
+  const perenual = status === "available" ? await deps.species.getCare(record.id) : null;
+  const ai = await ensureAiCare(deps, record);
+  const facts = mergeCareFacts(perenual, ai?.care ?? null, ai?.model ?? null);
+  return facts ? { status: "available", facts } : { status: "none" };
 }
 
 export async function loadSpeciesPreview(deps: PreviewDeps, id: string): Promise<SpeciesPreview | null> {

@@ -3,7 +3,7 @@ import type { UsageStatus } from "@/types/species";
 import { PlantStoreError } from "./plant-repo";
 import type { SupabaseServerClient } from "./supabase-client";
 
-export type UsageProvider = "plantnet" | "perenual" | "trefle" | "azure_translator";
+export type UsageProvider = "plantnet" | "perenual" | "trefle" | "azure_translator" | "care_ai";
 
 export type ReserveAnswer =
   | { kind: "reserved"; id: string }

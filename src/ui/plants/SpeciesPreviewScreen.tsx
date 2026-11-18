@@ -1,25 +1,31 @@
 import Link from "next/link";
-import type { CareFacts, SpeciesPreview } from "@/types/species";
+import type { CareField, CareFacts, SpeciesPreview } from "@/types/species";
 import { SpeciesPhoto } from "./SpeciesPhoto";
 import styles from "./plants.module.css";
 
 const NO_INFO = "정보 없음";
 
 function FactList({ facts }: { facts: CareFacts | null }) {
-  const rows: [string, string | null][] = [
-    ["관리 난이도", facts?.careLevel ?? null],
-    ["빛 환경", facts?.light ?? null],
-    ["물 주기", facts?.watering ?? null],
-    ["흙 확인 간격 참고", facts?.wateringInterval ?? null],
-    // English original until translation is connected (ADR-0004 D3, owner decision 2026-11-15).
-    ["짧은 식물 설명", facts?.description ?? null],
+  const rows: [string, CareField, string | null][] = [
+    ["관리 난이도", "careLevel", facts?.careLevel ?? null],
+    ["빛 환경", "light", facts?.light ?? null],
+    ["물 주기", "watering", facts?.watering ?? null],
+    ["흙 확인 간격 참고", "wateringInterval", facts?.wateringInterval ?? null],
+    ["온도", "temperature", facts?.temperature ?? null],
+    ["흙", "soil", facts?.soil ?? null],
+    ["비료", "fertilizer", facts?.fertilizer ?? null],
+    // English original from Perenual until translation is connected (ADR-0004 D3, owner decision 2026-11-15).
+    ["짧은 식물 설명", "description", facts?.description ?? null],
   ];
   return (
     <dl className={styles.facts}>
-      {rows.map(([label, value]) => (
+      {rows.map(([label, field, value]) => (
         <div key={label} className={styles.factRow}>
           <dt>{label}</dt>
-          <dd>{value ?? NO_INFO}</dd>
+          <dd>
+            {value ?? NO_INFO}
+            {value !== null && facts?.aiFields.includes(field) ? <span className={styles.aiMark}>AI 생성</span> : null}
+          </dd>
         </div>
       ))}
     </dl>
@@ -37,6 +43,14 @@ function CareNote({ care }: { care: SpeciesPreview["care"] }) {
   }
   if (care.status === "pending") {
     return <p className={styles.note}>관리 정보를 지금 불러오지 못했습니다. 이 화면을 다시 열면 다시 확인합니다.</p>;
+  }
+  if (care.status === "available" && care.facts.aiFields.length > 0) {
+    return (
+      <p className={styles.note}>
+        관리 정보 출처: Perenual, 그리고 AI({care.facts.aiModel ?? "모델 정보 없음"})가 만든 &lsquo;AI 생성&rsquo; 항목. AI 값은 사실
+        확인을 거치지 않은 참고 정보입니다. 화분 환경에 맞게 판단하세요.
+      </p>
+    );
   }
   return <p className={styles.note}>관리 정보 출처: Perenual. 화분 환경에 따라 다를 수 있습니다.</p>;
 }

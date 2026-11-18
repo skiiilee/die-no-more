@@ -1,8 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { PerenualCare } from "@/types/species";
+import type { AiCare, PerenualCare } from "@/types/species";
 import { careFacts } from "./care-labels";
 import { loadSpeciesPreview, type PreviewDeps } from "./species-preview";
-import { fakePerenual, fakeSpeciesStore, fakeTrefle, providerSpecies, record } from "../../tests/fakes/species";
+import { fakeCareAi, fakePerenual, fakeSpeciesStore, fakeTrefle, providerSpecies, record } from "../../tests/fakes/species";
+
+const AI: AiCare = {
+  careLevel: "쉬움",
+  light: "밝은 간접광",
+  watering: "흙이 마르면 충분히",
+  wateringBenchmark: { min: 5, max: 7 },
+  temperature: "18~25도",
+  soil: "배수가 좋은 흙",
+  fertilizer: "봄·여름 한 달에 한 번",
+  description: "실내에서 잘 자라는 식물입니다.",
+};
 
 const ID = "10000000-0000-0000-0000-000000000001";
 const CARE: PerenualCare = {
@@ -14,7 +25,7 @@ const CARE: PerenualCare = {
 };
 
 function deps(overrides: Partial<PreviewDeps> = {}): PreviewDeps {
-  return { species: fakeSpeciesStore(), perenual: fakePerenual(), trefle: fakeTrefle(), ...overrides };
+  return { species: fakeSpeciesStore(), perenual: fakePerenual(), trefle: fakeTrefle(), careAi: null, ...overrides };
 }
 
 describe("loadSpeciesPreview", () => {
@@ -79,7 +90,12 @@ describe("loadSpeciesPreview", () => {
         light: "반그늘, 그늘",
         watering: "보통",
         wateringInterval: "7~10일",
+        temperature: null,
+        soil: null,
+        fertilizer: null,
         description: "The Indian Rubberplant is a houseplant.",
+        aiFields: [],
+        aiModel: null,
       },
     });
   });
@@ -146,12 +162,110 @@ describe("careFacts", () => {
         careLevel: "Extreme",
         description: null,
       }),
-    ).toEqual({ careLevel: "Extreme", light: "반그늘, moonlight", watering: "Sometimes", wateringInterval: "5일", description: null });
+    ).toEqual({
+      careLevel: "Extreme",
+      light: "반그늘, moonlight",
+      watering: "Sometimes",
+      wateringInterval: "5일",
+      temperature: null,
+      soil: null,
+      fertilizer: null,
+      description: null,
+      aiFields: [],
+      aiModel: null,
+    });
   });
 
   it("is '정보 없음' (null) only when Perenual gave nothing", () => {
     expect(
       careFacts({ watering: null, wateringBenchmark: null, sunlight: [], careLevel: " ", description: null }),
-    ).toEqual({ careLevel: null, light: null, watering: null, wateringInterval: null, description: null });
+    ).toEqual({
+      careLevel: null,
+      light: null,
+      watering: null,
+      wateringInterval: null,
+      temperature: null,
+      soil: null,
+      fertilizer: null,
+      description: null,
+      aiFields: [],
+      aiModel: null,
+    });
+  });
+});
+
+describe("care AI fill (ADR-0005)", () => {
+  it("asks the AI once for a species Perenual left empty, stores its values, and marks the fields it filled", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "outside_free_range" }) });
+    const careAi = fakeCareAi({ kind: "ok", care: AI, model: "model-x" });
+    const preview = await loadSpeciesPreview(deps({ species, careAi }), ID);
+    expect(careAi.describe).toHaveBeenCalledWith("Ficus elastica");
+    expect(species.saveAiCare).toHaveBeenCalledWith(ID, { care: AI, model: "model-x" });
+    expect(preview?.care).toEqual({
+      status: "available",
+      facts: {
+        careLevel: "쉬움",
+        light: "밝은 간접광",
+        watering: "흙이 마르면 충분히",
+        wateringInterval: "5~7일",
+        temperature: "18~25도",
+        soil: "배수가 좋은 흙",
+        fertilizer: "봄·여름 한 달에 한 번",
+        description: "실내에서 잘 자라는 식물입니다.",
+        aiFields: ["careLevel", "light", "watering", "wateringInterval", "temperature", "soil", "fertilizer", "description"],
+        aiModel: "model-x",
+      },
+    });
+  });
+
+  it("keeps the Perenual value and marks only the fields the AI filled", async () => {
+    const species = fakeSpeciesStore({ record: record({ perenualId: 2961, koreanNameCheckedAt: "x" }), care: CARE });
+    const perenual = fakePerenual(undefined, { kind: "ok", care: CARE });
+    const careAi = fakeCareAi({ kind: "ok", care: AI, model: "model-x" });
+    const preview = await loadSpeciesPreview(deps({ species, perenual, careAi }), ID);
+    expect(preview?.care).toMatchObject({
+      status: "available",
+      facts: { careLevel: "보통", watering: "보통", description: "The Indian Rubberplant is a houseplant.", temperature: "18~25도" },
+    });
+    if (preview?.care.status !== "available") throw new Error("expected facts");
+    expect(preview.care.facts.aiFields).not.toContain("careLevel");
+    expect(preview.care.facts.aiFields).not.toContain("description");
+    expect(preview.care.facts.aiFields).toContain("temperature");
+  });
+
+  it("makes no AI call once the species is checked, and reads the stored values", async () => {
+    const species = fakeSpeciesStore({
+      record: record({ careStatus: "not_found", careAiCheckedAt: "2026-11-18T00:00:00Z" }),
+      aiCare: { care: AI, model: "model-x" },
+    });
+    const careAi = fakeCareAi();
+    const preview = await loadSpeciesPreview(deps({ species, careAi }), ID);
+    expect(careAi.describe).not.toHaveBeenCalled();
+    expect(species.saveAiCare).not.toHaveBeenCalled();
+    expect(preview?.care).toMatchObject({ status: "available", facts: { light: "밝은 간접광" } });
+  });
+
+  it("does not mark the species as asked when the AI is unavailable, so the next visit asks again", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "outside_free_range" }) });
+    const careAi = fakeCareAi({ kind: "unavailable" });
+    const d = deps({ species, careAi });
+    expect((await loadSpeciesPreview(d, ID))?.care).toEqual({ status: "none" });
+    expect(species.saveAiCare).not.toHaveBeenCalled();
+    await loadSpeciesPreview(d, ID);
+    expect(careAi.describe).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks an empty AI answer as asked, stores nothing, and shows no care data", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
+    const preview = await loadSpeciesPreview(deps({ species, careAi: fakeCareAi({ kind: "none", model: "model-x" }) }), ID);
+    expect(species.saveAiCare).toHaveBeenCalledWith(ID, { care: null, model: null });
+    expect(preview?.care).toEqual({ status: "none" });
+  });
+
+  it("makes no AI call when the care AI is not configured", async () => {
+    const species = fakeSpeciesStore({ record: record({ careStatus: "not_found" }) });
+    const preview = await loadSpeciesPreview(deps({ species, careAi: null }), ID);
+    expect(species.saveAiCare).not.toHaveBeenCalled();
+    expect(preview?.care).toEqual({ status: "none" });
   });
 });

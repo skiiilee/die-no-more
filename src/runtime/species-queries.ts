@@ -2,6 +2,7 @@ import "server-only";
 import { readProviderConfig } from "@/config/providers";
 import { supabaseSpeciesStore } from "@/repo/species-repo";
 import { supabaseUsageStore } from "@/repo/usage-repo";
+import { careAi, careAiUsage } from "@/service/adapters/care-ai";
 import { httpClient, providerClient, REQUEST_BUDGET_MS } from "@/service/adapters/http";
 import { perenual, perenualUsage } from "@/service/adapters/perenual";
 import { trefle, trefleUsage } from "@/service/adapters/trefle";
@@ -45,11 +46,22 @@ async function requestDeps() {
       )
     : null;
 
+  const careAiAdapter = config.careAi
+    ? careAi(
+        providerClient(
+          http,
+          usageGate({ usage, provider: "care_ai", dailyLimit: config.careAi.dailyLimit, classify: (r) => careAiUsage(r) }),
+        ),
+        { baseUrl: config.careAi.baseUrl, key: config.careAi.key, model: config.careAi.model },
+      )
+    : null;
+
   return {
     species: supabaseSpeciesStore(supabase.client),
     perenual: perenualAdapter,
     trefle: trefleAdapter,
     translator: notConnectedTranslator,
+    careAi: careAiAdapter,
   };
 }
 

@@ -35,6 +35,8 @@ export type SpeciesRecord = {
   imageCredit: string | null;
   koreanNameCheckedAt: string | null;
   careStatus: CareStatus | null;
+  /** Set once the care AI was asked for this species (ADR-0005 D2). Null = not asked yet. */
+  careAiCheckedAt: string | null;
 };
 
 /** S04-A row. The English common name is never shown (03 §1). */
@@ -94,13 +96,26 @@ export type SpeciesPreview = {
   imageUrl: string | null;
   imageCredit: string | null;
   /**
-   * available: care facts below come from Perenual.
-   * none: Perenual has no care data for this species (outside the free range
-   *   or no match): no water reminder, S13 '직접 입력하기' (approved 2026-11-12).
+   * available: at least one care fact, from Perenual and/or the care AI
+   *   (`facts.aiFields` lists the AI ones, ADR-0005 D5).
+   * none: no care data from either source: no water reminder, S13 '직접 입력하기' (approved 2026-11-12).
    * pending: Perenual could not be asked right now; try again later.
    */
   care: { status: "available"; facts: CareFacts } | { status: "none" } | { status: "pending" };
 };
+
+/** Fields the care AI may fill (ADR-0005 D3). Toxicity is never asked. */
+export const AI_CARE_FIELDS = [
+  "careLevel",
+  "light",
+  "watering",
+  "wateringInterval",
+  "temperature",
+  "soil",
+  "fertilizer",
+  "description",
+] as const;
+export type CareField = (typeof AI_CARE_FIELDS)[number];
 
 /**
  * S04-B values. Known codes get Korean labels; anything else is shown as the
@@ -112,7 +127,26 @@ export type CareFacts = {
   watering: string | null;
   /** e.g. "7~10일" (soil check interval reference, D16). */
   wateringInterval: string | null;
-  /** English original until translation is connected (ADR-0004 D3). */
+  temperature: string | null;
+  soil: string | null;
+  fertilizer: string | null;
+  /** English original from Perenual until translation is connected (ADR-0004 D3); Korean from the AI. */
+  description: string | null;
+  /** Fields whose value came from the care AI and not from Perenual (shown with an 'AI 생성' mark). */
+  aiFields: CareField[];
+  /** The model that answered, when aiFields is not empty (ADR-0005 D5). */
+  aiModel: string | null;
+};
+
+/** Care values from the care AI, as the adapter normalized them (Korean text, validated). */
+export type AiCare = {
+  careLevel: string | null;
+  light: string | null;
+  watering: string | null;
+  wateringBenchmark: { min: number; max: number } | null;
+  temperature: string | null;
+  soil: string | null;
+  fertilizer: string | null;
   description: string | null;
 };
 

@@ -140,9 +140,9 @@ describe("httpClient POST (Pl@ntNet photo upload)", () => {
   it("sends the method and a freshly built form on every attempt, through the gate", async () => {
     const forms: FormData[] = [];
     const responses = [503, 200];
-    const fetchImpl = vi.fn(async (_url: string, init: { method: string; body?: FormData }) => {
+    const fetchImpl = vi.fn(async (_url: string, init: { method: string; body?: FormData | string }) => {
       expect(init.method).toBe("POST");
-      forms.push(init.body!);
+      forms.push(init.body as FormData);
       return new Response("{}", { status: responses.shift() ?? 200 });
     });
     let now = 0;
