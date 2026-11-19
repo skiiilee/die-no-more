@@ -1,5 +1,6 @@
 "use server";
 
+import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { FEATURES } from "@/config/features";
 import { registerPot, type RegistrationPhoto } from "@/service/plant-service";
@@ -46,7 +47,11 @@ export async function registerPotAction(_prev: RegisterFormState, formData: Form
   redirect(result.photo === "failed" ? `/plants/${result.id}?photo=failed` : `/plants/${result.id}`);
 }
 
-/** S06 [사진 추가]: one photo for this own pot, then S06 again. */
+/**
+ * S06 [사진 추가]: one photo for this own pot, then S06 shows it.
+ * S06 is refreshed in place rather than redirected to itself: a redirect to
+ * the same page left [사진 추가]/[사진 삭제] disabled (pending) on phones.
+ */
 export async function addPotPhotoAction(_prev: PotPhotoFormState, formData: FormData): Promise<PotPhotoFormState> {
   await requireSignedIn();
   const potId = formData.get("potId");
@@ -66,10 +71,11 @@ export async function addPotPhotoAction(_prev: PotPhotoFormState, formData: Form
   if (!bytes) return { status: "invalid", message: "사진 파일을 찾지 못했습니다. 다시 골라 주세요." };
   const result = await addPotPhoto(photoDeps(stores.photos), potId, bytes);
   if (!result.ok) return { status: result.kind, message: result.message };
-  redirect(`/plants/${potId}`);
+  refresh();
+  return { status: "done" };
 }
 
-/** S06 [사진 삭제] after the confirmation: removes the shown photo, then S06 again. */
+/** S06 [사진 삭제] after the confirmation: removes the shown photo, then S06 refreshed in place. */
 export async function deletePotPhotoAction(_prev: PotPhotoFormState, formData: FormData): Promise<PotPhotoFormState> {
   await requireSignedIn();
   const potId = formData.get("potId");
@@ -81,5 +87,6 @@ export async function deletePotPhotoAction(_prev: PotPhotoFormState, formData: F
   if (!stores) return { status: "failed", message: "지금은 사진을 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요." };
   const result = await deletePotPhoto(stores.photos, potId, photoId);
   if (!result.ok) return { status: "failed", message: result.message };
-  redirect(`/plants/${potId}`);
+  refresh();
+  return { status: "done" };
 }

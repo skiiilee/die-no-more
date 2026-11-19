@@ -142,7 +142,8 @@ export type PotView = {
 export type PotPhoto = { id: string; url: string | null; createdAt: string };
 
 /** S06 [사진 추가] / [사진 삭제] answer. "saved"/"deleted" redirect, so the screen only sees failures. */
-export type PotPhotoFormState = { status: "idle" | "invalid" | "failed"; message?: string };
+/** S06 photo actions. "done" means saved or deleted; S06 is refreshed with the new photo. */
+export type PotPhotoFormState = { status: "idle" | "done" | "invalid" | "failed"; message?: string };
 
 export const TEXT_LIMITS = { name: 60, nickname: 40, location: 60, memo: 500 } as const;
 
