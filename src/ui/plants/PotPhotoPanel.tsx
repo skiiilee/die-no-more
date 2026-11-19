@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useActionState, useState } from "react";
+import { useState } from "react";
 import { addPotPhotoAction, deletePotPhotoAction } from "@/runtime/plant-actions";
 import type { PotPhoto, PotPhotoFormState } from "@/types/plant";
 import { PhotoSourceDialog } from "./PhotoSourceDialog";
@@ -8,12 +8,22 @@ import { usePickedPhoto } from "./use-picked-photo";
 import styles from "./plants.module.css";
 
 const IDLE: PotPhotoFormState = { status: "idle" };
+/** When the request itself fails (network, server error) before the action answers. */
+const FAILED = {
+  add: "사진을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+  delete: "사진을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+} as const;
 
 /**
  * S06 화분 사진 (wireframe pages 19–20): the newest photo of this pot, with
  * [사진 추가] and [사진 삭제]. A photo is added as soon as it is prepared;
  * deleting asks first. Both refresh S06 in place when they succeed, so this
  * panel stays mounted and shows only the message of the last thing tried.
+ *
+ * "Busy" is plain state set around the awaited action, not useActionState's
+ * pending flag. With Cache Components, Next keeps a left page in a hidden
+ * <Activity> and shows it again on [뒤로]; the pending flag could come back
+ * stuck there and leave both buttons grey (device test, 2026-11-19).
  */
 export function PotPhotoPanel({
   potId,
@@ -27,22 +37,34 @@ export function PotPhotoPanel({
   /** S05 saved the pot but not its photo. */
   registrationPhotoFailed?: boolean;
 }) {
-  const [addState, add, adding] = useActionState(addPotPhotoAction, IDLE);
-  const [deleteState, remove, deleting] = useActionState(deletePotPhotoAction, IDLE);
+  const [state, setState] = useState<PotPhotoFormState>(IDLE);
+  const [running, setRunning] = useState<"add" | "delete" | null>(null);
   const picked = usePickedPhoto();
   const [choosing, setChoosing] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [last, setLast] = useState<"add" | "delete" | null>(null);
-  const busy = adding || deleting || picked.preparing;
+  const adding = running === "add";
+  const deleting = running === "delete";
+  const busy = running !== null || picked.preparing;
+
+  const run = async (kind: "add" | "delete", form: FormData) => {
+    setRunning(kind);
+    try {
+      setState(await (kind === "add" ? addPotPhotoAction : deletePotPhotoAction)(IDLE, form));
+    } catch {
+      setState({ status: "failed", message: FAILED[kind] });
+    } finally {
+      setRunning(null);
+    }
+  };
 
   const upload = async (file: File) => {
-    setLast("add");
+    setState(IDLE);
     const blob = await picked.pick(file);
     if (!blob) return;
     const form = new FormData();
     form.set("potId", potId);
     form.set("photo", blob, "pot-photo.jpg");
-    startTransition(() => add(form));
+    await run("add", form);
   };
 
   const confirmDelete = () => {
@@ -51,12 +73,12 @@ export function PotPhotoPanel({
     form.set("potId", potId);
     form.set("photoId", photo.id);
     setConfirming(false);
-    setLast("delete");
-    startTransition(() => remove(form));
+    picked.clear();
+    setState(IDLE);
+    void run("delete", form);
   };
 
-  const lastState = last === "add" ? addState : last === "delete" ? deleteState : IDLE;
-  const message = (last === "add" ? picked.error : null) ?? lastState.message ?? null;
+  const message = picked.error ?? state.message ?? null;
 
   return (
     <div className={styles.card}>
