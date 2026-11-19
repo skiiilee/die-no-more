@@ -10,6 +10,7 @@ import {
   potDisplayName,
   type PotView,
 } from "@/types/plant";
+import { PotPhotoPanel } from "./PotPhotoPanel";
 import styles from "./plants.module.css";
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZone: "Asia/Seoul" });
@@ -19,7 +20,7 @@ const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZ
  * Records (S08/S10), health check (S07) and species care (S13) are added by
  * the PRs that build those screens.
  */
-export function PlantDetail({ pot }: { pot: PotView }) {
+export function PlantDetail({ pot, photoFailed = false }: { pot: PotView; photoFailed?: boolean }) {
   const recordedOn = dateFormat.format(new Date(pot.initialStateRecordedAt));
   const label = <T extends string>(options: readonly { code: T; label: string }[], code: T) =>
     optionLabel(options, code) ?? code;
@@ -37,6 +38,8 @@ export function PlantDetail({ pot }: { pot: PotView }) {
       {pot.nickname ? <p className={styles.lead}>{plantName(pot)}</p> : null}
 
       <div className={styles.columns}>
+        <PotPhotoPanel potId={pot.id} name={potDisplayName(pot)} photo={pot.photo} registrationPhotoFailed={photoFailed} />
+
         <div className={styles.card}>
           <h2 className={styles.cardTitle}>화분 기본 정보</h2>
           <dl className={styles.facts}>

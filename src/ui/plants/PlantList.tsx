@@ -34,9 +34,19 @@ export function PlantList({ pots }: { pots: PotView[] }) {
             ].filter(Boolean);
             return (
               <li key={pot.id}>
-                <Link href={`/plants/${pot.id}`} className={styles.potLink}>
-                  <span className={styles.potName}>{name}</span>
-                  {meta.length > 0 ? <span className={styles.potMeta}>{meta.join(" · ")}</span> : null}
+                <Link href={`/plants/${pot.id}`} className={`${styles.potLink} ${styles.potCard}`}>
+                  {pot.photo?.url ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- short-lived signed link to the private bucket
+                    <img src={pot.photo.url} alt="" className={styles.thumb} loading="lazy" />
+                  ) : (
+                    <span className={`${styles.thumb} ${styles.noPhoto}`} aria-hidden="true">
+                      사진 없음
+                    </span>
+                  )}
+                  <span className={styles.potText}>
+                    <span className={styles.potName}>{name}</span>
+                    {meta.length > 0 ? <span className={styles.potMeta}>{meta.join(" · ")}</span> : null}
+                  </span>
                 </Link>
               </li>
             );

@@ -23,6 +23,7 @@ const POT: PotView = {
   waterReminder: false,
   fertilizerReminder: false,
   createdAt: "2026-11-15T00:00:00Z",
+  photo: null,
 };
 
 describe("S06 memo (PR #13 review, item 4)", () => {
