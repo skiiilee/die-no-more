@@ -12,7 +12,8 @@ const IDLE: PotPhotoFormState = { status: "idle" };
 /**
  * S06 화분 사진 (wireframe pages 19–20): the newest photo of this pot, with
  * [사진 추가] and [사진 삭제]. A photo is added as soon as it is prepared;
- * deleting asks first. Both reload S06 when they succeed.
+ * deleting asks first. Both refresh S06 in place when they succeed, so this
+ * panel stays mounted and shows only the message of the last thing tried.
  */
 export function PotPhotoPanel({
   potId,
@@ -31,9 +32,11 @@ export function PotPhotoPanel({
   const picked = usePickedPhoto();
   const [choosing, setChoosing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [last, setLast] = useState<"add" | "delete" | null>(null);
   const busy = adding || deleting || picked.preparing;
 
   const upload = async (file: File) => {
+    setLast("add");
     const blob = await picked.pick(file);
     if (!blob) return;
     const form = new FormData();
@@ -48,11 +51,12 @@ export function PotPhotoPanel({
     form.set("potId", potId);
     form.set("photoId", photo.id);
     setConfirming(false);
+    setLast("delete");
     startTransition(() => remove(form));
   };
 
-  const message = picked.error ?? (addState.status !== "idle" ? addState.message : null) ??
-    (deleteState.status !== "idle" ? deleteState.message : null);
+  const lastState = last === "add" ? addState : last === "delete" ? deleteState : IDLE;
+  const message = (last === "add" ? picked.error : null) ?? lastState.message ?? null;
 
   return (
     <div className={styles.card}>

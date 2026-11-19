@@ -218,6 +218,32 @@ describe("S06 화분 사진", () => {
     expect([form.get("potId"), form.get("photoId")]).toEqual([POT_ID, PHOTO_ID]);
   });
 
+  it("keeps [사진 추가] and [사진 삭제] usable after a photo is added (real-device bug)", async () => {
+    addPhoto.mockImplementationOnce(async () => ({ status: "done" }));
+    const { rerender } = render(<PotPhotoPanel potId={POT_ID} name="고무나무" photo={null} />);
+    await pickFromGallery("사진 추가");
+    await waitFor(() => expect(addPhoto).toHaveBeenCalled());
+    rerender(<PotPhotoPanel potId={POT_ID} name="고무나무" photo={PHOTO} />);
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "사진 삭제" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    expect((screen.getByRole("button", { name: "사진 추가" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("drops an earlier [사진 추가] error once a delete is tried", async () => {
+    addPhoto.mockImplementationOnce(async () => ({ status: "failed", message: "사진을 저장하지 못했습니다." }));
+    render(<PotPhotoPanel potId={POT_ID} name="고무나무" photo={PHOTO} />);
+    await pickFromGallery("사진 추가");
+    expect(await screen.findByText("사진을 저장하지 못했습니다.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "사진 삭제" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "삭제" }));
+    });
+    await waitFor(() => expect(deletePhoto).toHaveBeenCalled());
+    expect(screen.queryByText("사진을 저장하지 못했습니다.")).toBeNull();
+  });
+
   it("says when the photo link could not be made instead of showing a broken image", () => {
     render(<PotPhotoPanel potId={POT_ID} name="고무나무" photo={{ ...PHOTO, url: null }} />);
     expect(screen.getByRole("img", { name: "사진을 불러오지 못함" })).toBeTruthy();
