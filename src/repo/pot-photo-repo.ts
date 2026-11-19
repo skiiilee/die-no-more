@@ -24,7 +24,7 @@ export type PotPhotoStore = {
   removeObject(path: string): Promise<boolean>;
   /** Links an uploaded file to the pot as a pot photo (attached at once). */
   insertPhoto(plantId: string, path: string): Promise<boolean>;
-  /** The newest pot photo of each pot that has one. */
+  /** The newest pot photo of each pot that has one (one row per pot from the database). */
   newestPhotos(plantIds: string[]): Promise<Map<string, StoredPotPhoto>>;
   /** Signed links by path. A path missing from the map has no link. */
   signedUrls(paths: string[]): Promise<Map<string, string>>;
@@ -70,17 +70,11 @@ export function supabasePotPhotoStore(client: SupabaseServerClient): PotPhotoSto
     async newestPhotos(plantIds) {
       const newest = new Map<string, StoredPotPhoto>();
       if (plantIds.length === 0) return newest;
-      const { data, error } = await client
-        .from("plant_photos")
-        .select("id, plant_id, storage_path, created_at")
-        .eq("photo_type", "plant")
-        .in("plant_id", plantIds)
-        .order("created_at", { ascending: false });
+      // One row per pot, chosen in the database (PR #20 review P2): older photos are never sent.
+      const { data, error } = await client.rpc("newest_pot_photos", { p_plant_ids: plantIds });
       if (error || !data) throw new PlantStoreError("newestPhotos", { cause: error });
       for (const row of data as PhotoRow[]) {
-        if (!newest.has(row.plant_id)) {
-          newest.set(row.plant_id, { id: row.id, plantId: row.plant_id, path: row.storage_path, createdAt: row.created_at });
-        }
+        newest.set(row.plant_id, { id: row.id, plantId: row.plant_id, path: row.storage_path, createdAt: row.created_at });
       }
       return newest;
     },

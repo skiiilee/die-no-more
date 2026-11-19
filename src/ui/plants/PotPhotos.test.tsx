@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PotPhotoFormState, PotView, RegisterFormState } from "@/types/plant";
 import { PlantList } from "./PlantList";
 import { PotPhotoPanel } from "./PotPhotoPanel";
 import { RegisterPlantForm } from "./RegisterPlantForm";
+import { usePickedPhoto } from "./use-picked-photo";
 
 const { register, addPhoto, deletePhoto, prepare } = vi.hoisted(() => ({
   register: vi.fn<(prev: RegisterFormState, formData: FormData) => Promise<RegisterFormState>>(),
@@ -100,6 +101,59 @@ describe("S05 화분 사진 (선택)", () => {
     await pickFromGallery("사진 고르기");
     expect(screen.getByRole("alert").textContent).toContain("이 사진을 열지 못했습니다");
     expect((screen.getByRole("button", { name: "식물 추가하기" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("sends no photo when a new pick fails after an earlier one (PR #20 review P2)", async () => {
+    renderS05();
+    await pickFromGallery("사진 고르기");
+    expect(screen.getByAltText("고른 화분 사진 미리보기")).toBeTruthy();
+
+    prepare.mockResolvedValueOnce({ ok: false, message: "이 사진을 열지 못했습니다. JPEG로 다시 선택해 주세요." });
+    await pickFromGallery("다른 사진 고르기");
+    expect(screen.queryByAltText("고른 화분 사진 미리보기")).toBeNull();
+    expect(screen.getByRole("img", { name: "사진 없음" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("이 사진을 열지 못했습니다");
+
+    chooseAll();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "식물 추가하기" }));
+    });
+    await waitFor(() => expect(register).toHaveBeenCalled());
+    expect(register.mock.calls[0][1].get("photo")).toBeNull();
+  });
+
+  it("keeps the latest pick when an earlier, slower preparation finishes last", async () => {
+    // The screen disables picking while a photo is prepared; the hook guards anyway.
+    let finishFirst: (value: unknown) => void = () => {};
+    prepare
+      .mockImplementationOnce(() => new Promise((resolve) => (finishFirst = resolve)))
+      .mockImplementationOnce(async () => ({ ok: true, blob: new Blob(["second"], { type: "image/jpeg" }) }));
+    const { result } = renderHook(() => usePickedPhoto());
+    let first: Promise<Blob | null> = Promise.resolve(null);
+    await act(async () => {
+      first = result.current.pick(new File(["a"], "a.jpg", { type: "image/jpeg" }));
+      await result.current.pick(new File(["b"], "b.jpg", { type: "image/jpeg" }));
+    });
+    await act(async () => {
+      finishFirst({ ok: true, blob: new Blob(["first"], { type: "image/jpeg" }) });
+      expect(await first).toBeNull();
+    });
+    expect(await result.current.photo?.text()).toBe("second");
+  });
+
+  it("forgets a preparation that finishes after [사진 빼기]", async () => {
+    let finish: (value: unknown) => void = () => {};
+    prepare.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const { result } = renderHook(() => usePickedPhoto());
+    act(() => {
+      void result.current.pick(new File(["a"], "a.jpg", { type: "image/jpeg" }));
+    });
+    act(() => result.current.clear());
+    await act(async () => {
+      finish({ ok: true, blob: PREPARED });
+    });
+    expect(result.current.photo).toBeNull();
+    expect(result.current.preparing).toBe(false);
   });
 
   it("shows the server's photo message, and drops it once another photo is picked", async () => {
