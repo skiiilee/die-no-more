@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense, use } from "react";
 import {
   ENVIRONMENTS,
   LAST_REPOTTED_RANGES,
@@ -10,17 +11,66 @@ import {
   potDisplayName,
   type PotView,
 } from "@/types/plant";
+import type { PotCare } from "@/types/species";
+import { Spinner } from "@/ui/shell/Spinner";
 import { PotPhotoPanel } from "./PotPhotoPanel";
+import { SpeciesCareFacts } from "./SpeciesCare";
 import styles from "./plants.module.css";
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeZone: "Asia/Seoul" });
 
+/** The species care once loaded, with the care AI step streamed in (ADR-0005 D6). */
+function PotCareFacts({ care }: { care: Promise<PotCare> }) {
+  const { care: now, aiFill, aiCare } = use(care);
+  return <SpeciesCareFacts care={now} aiFill={aiFill} aiCare={aiCare} place="pot" />;
+}
+
 /**
- * S06 내 화분 상세 (wireframe pages 19–20), first part: the pot's own info.
- * Records (S08/S10), health check (S07) and species care (S13) are added by
- * the PRs that build those screens.
+ * S06 종별 관리 참고 (F10): what is known for the species, kept apart from
+ * this pot's own info and records. A pot without a species has none.
  */
-export function PlantDetail({ pot, photoFailed = false }: { pot: PotView; photoFailed?: boolean }) {
+function SpeciesCareCard({ pot, care }: { pot: PotView; care: Promise<PotCare> | null }) {
+  return (
+    <div className={styles.card}>
+      <h2 className={styles.cardTitle}>종별 관리 참고</h2>
+      {pot.species && care ? (
+        <>
+          <p className={styles.note}>
+            {pot.species.koreanName ?? pot.species.scientificName} 종 공통 참고 정보입니다. 이 화분의 기록이 아닙니다.
+          </p>
+          <Suspense
+            fallback={
+              <p className={`${styles.note} ${styles.aiLoading}`} role="status">
+                <Spinner />
+                관리 정보를 불러오는 중입니다.
+              </p>
+            }
+          >
+            <PotCareFacts care={care} />
+          </Suspense>
+        </>
+      ) : (
+        <p className={styles.note}>아직 관리 정보 없음. 종이 정해지지 않은 화분입니다.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * S06 내 화분 상세 (wireframe pages 19–20): the pot's own info, its photo,
+ * and the species care (F10). Records (S08/S10), health check (S07) and
+ * direct care entry (S13) are added by the PRs that build those screens.
+ * `care` streams in after the pot is shown; null when the pot has no species.
+ */
+export function PlantDetail({
+  pot,
+  care = null,
+  photoFailed = false,
+}: {
+  pot: PotView;
+  care?: Promise<PotCare> | null;
+  photoFailed?: boolean;
+}) {
   const recordedOn = dateFormat.format(new Date(pot.initialStateRecordedAt));
   const label = <T extends string>(options: readonly { code: T; label: string }[], code: T) =>
     optionLabel(options, code) ?? code;
@@ -71,12 +121,7 @@ export function PlantDetail({ pot, photoFailed = false }: { pot: PotView; photoF
           </dl>
         </div>
 
-        <div className={styles.card}>
-          <h2 className={styles.cardTitle}>종별 관리 참고</h2>
-          <p className={styles.note}>
-            {pot.species ? "관리 정보 조회는 아직 연결 중입니다." : "아직 관리 정보 없음. 종이 정해지지 않은 화분입니다."}
-          </p>
-        </div>
+        <SpeciesCareCard pot={pot} care={care} />
       </div>
     </section>
   );

@@ -113,6 +113,13 @@ export type SpeciesPreview = {
 
 export type SpeciesCare = { status: "available"; facts: CareFacts } | { status: "none" } | { status: "pending" };
 
+/**
+ * S06 종별 관리 참고: the pot's species care, as S04-B would show it (F10:
+ * the stored care is reused). `aiCare` is the streamed care AI step, when
+ * `aiFill` is not empty (ADR-0005 D6).
+ */
+export type PotCare = { care: SpeciesCare; aiFill: CareField[]; aiCare: Promise<SpeciesCare> | null };
+
 /** Fields the care AI may fill (ADR-0005 D3). Toxicity is never asked. */
 export const AI_CARE_FIELDS = [
   "careLevel",
