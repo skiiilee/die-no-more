@@ -1,4 +1,4 @@
-import type { ExplainAnswer, HealthAnswer, HealthCandidate, HealthInput } from "@/types/health";
+import type { ExplainAnswer, HealthAnswer, HealthCandidate, HealthInput, JudgeAnswer } from "@/types/health";
 
 /**
  * Browser calls for S07. Network errors and unexpected answers become plain
@@ -50,5 +50,35 @@ export async function requestExplanation(candidates: HealthCandidate[], input: H
     return body?.kind === "ok" || body?.kind === "none" ? body : { kind: "unavailable" };
   } catch {
     return { kind: "unavailable" };
+  }
+}
+
+/**
+ * S07-B '판단 어려움' → the photo AI (ADR-0006 D6). `consent` is the AI photo
+ * consent for this request only. Notes are not sent.
+ */
+export async function requestAiJudgement(
+  photos: Blob[],
+  consent: boolean,
+  input: HealthInput,
+): Promise<JudgeAnswer | HealthClientFailure> {
+  const form = new FormData();
+  form.append("consent", consent ? "true" : "false");
+  for (const symptom of input.symptoms) form.append("symptoms", symptom);
+  form.append("noticed", input.noticed);
+  if (input.potId) form.append("potId", input.potId);
+  photos.forEach((photo, index) => form.append("photos", photo, `photo-${index + 1}.jpg`));
+  let response: Response;
+  try {
+    response = await fetch("/api/health-checks/ai-judge", { method: "POST", body: form });
+  } catch {
+    return { kind: "network" };
+  }
+  if (response.status === 401) return { kind: "signed_out" };
+  try {
+    const body = (await response.json()) as JudgeAnswer;
+    return typeof body?.kind === "string" ? body : { kind: "failed" };
+  } catch {
+    return { kind: "failed" };
   }
 }

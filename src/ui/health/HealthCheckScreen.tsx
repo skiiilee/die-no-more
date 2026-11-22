@@ -7,6 +7,7 @@ import { fitRequest } from "@/ui/plants/photo-prep";
 import { PhotoSourceDialog } from "@/ui/plants/PhotoSourceDialog";
 import styles from "@/ui/plants/plants.module.css";
 import { useUnsavedChanges } from "@/ui/shell/unsaved-changes";
+import type { AiRecipient } from "./AiJudgePanel";
 import { requestHealthCheck } from "./health-client";
 import { HealthResult } from "./HealthResult";
 import { usePhotoList } from "./use-photo-list";
@@ -23,7 +24,7 @@ export const HEALTH_MESSAGES: Record<string, string> = {
   network: "연결이 끊겼습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.",
 };
 
-type Shown = { answer: Extract<HealthAnswer, { kind: "ok" | "unclear" }>; input: HealthInput };
+type Shown = { answer: Extract<HealthAnswer, { kind: "ok" | "unclear" }>; input: HealthInput; photos: Blob[] };
 
 /**
  * S07-A 건강 점검 입력 → S07-B 결과 (wireframe §6, 03 §4 F05). Photos stay in
@@ -32,7 +33,16 @@ type Shown = { answer: Extract<HealthAnswer, { kind: "ok" | "unclear" }>; input:
  * the photos and answers. [다시 점검] returns here with everything kept.
  * Saving the result to a pot (S07-S) comes in the next step.
  */
-export function HealthCheckScreen({ pots, initialPotId }: { pots: HealthPot[]; initialPotId: string | null }) {
+export function HealthCheckScreen({
+  pots,
+  initialPotId,
+  aiRecipient = null,
+}: {
+  pots: HealthPot[];
+  initialPotId: string | null;
+  /** Who gets the photos if the user asks the AI after '판단 어려움'; null hides that option. */
+  aiRecipient?: AiRecipient | null;
+}) {
   const photos = usePhotoList();
   const [potId, setPotId] = useState<string>(initialPotId ?? "");
   const [symptoms, setSymptoms] = useState<SymptomCode[]>([]);
@@ -64,7 +74,7 @@ export function HealthCheckScreen({ pots, initialPotId }: { pots: HealthPot[]; i
     setSending(false);
     setConsent(false);
     if (answer.kind === "ok" || answer.kind === "unclear") {
-      setShown({ answer, input });
+      setShown({ answer, input, photos: fitted.ok ? fitted.blobs : [] });
       return;
     }
     setError(answer.kind === "invalid" ? answer.message : (HEALTH_MESSAGES[answer.kind] ?? HEALTH_MESSAGES.failed));
@@ -72,7 +82,17 @@ export function HealthCheckScreen({ pots, initialPotId }: { pots: HealthPot[]; i
 
   const closeDialog = useCallback(() => setDialogOpen(false), []);
 
-  if (shown) return <HealthResult answer={shown.answer} input={shown.input} onAgain={() => setShown(null)} />;
+  if (shown) {
+    return (
+      <HealthResult
+        answer={shown.answer}
+        input={shown.input}
+        photos={shown.photos}
+        aiRecipient={aiRecipient}
+        onAgain={() => setShown(null)}
+      />
+    );
+  }
 
   return (
     <section className={styles.screen} aria-labelledby="health-title">

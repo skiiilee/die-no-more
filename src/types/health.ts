@@ -111,3 +111,32 @@ export const FIXED_ACTIONS = [
   "며칠 동안 같은 잎을 같은 자리에서 사진으로 남겨 변화를 비교하기",
   "증상이 번지는 것 같으면 다른 화분과 조금 떨어뜨려 두기",
 ] as const;
+
+/**
+ * The photo AI's own reading when Pl@ntNet found nothing (ADR-0006 D6). Never
+ * a diagnosis: visible signs, at most 3 possible causes as possibilities, and
+ * checks and safe steps, every text checked like the explanation.
+ */
+export type AiJudgement = {
+  /** What the AI says it can see in the photos. */
+  signs: string[];
+  /** Possible causes in Korean, as possibilities. */
+  causes: { name: string; reason: string }[];
+  checks: string[];
+  actions: string[];
+  model: string;
+};
+
+/**
+ * POST /api/health-checks/ai-judge answer.
+ * - ok: the AI's reading.
+ * - none: the AI saw nothing it could say safely ('판단 어려움' stays).
+ * - consent_required: the request did not carry this request's AI photo consent.
+ */
+export type JudgeAnswer =
+  | { kind: "ok"; judgement: AiJudgement }
+  | { kind: "none" }
+  | { kind: "invalid"; message: string }
+  | { kind: "consent_required" }
+  | { kind: "quota" }
+  | { kind: "unavailable" };

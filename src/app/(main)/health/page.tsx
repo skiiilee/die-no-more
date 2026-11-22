@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { healthAiRecipient } from "@/runtime/health-api";
 import { listPotChoices } from "@/runtime/plant-queries";
 import { HealthCheckScreen } from "@/ui/health/HealthCheckScreen";
 
@@ -14,5 +15,5 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const [{ pot }, pots] = await Promise.all([searchParams, listPotChoices()]);
   const wanted = Array.isArray(pot) ? pot[0] : pot;
   const initialPotId = pots.some((choice) => choice.id === wanted) ? (wanted as string) : null;
-  return <HealthCheckScreen pots={pots} initialPotId={initialPotId} />;
+  return <HealthCheckScreen pots={pots} initialPotId={initialPotId} aiRecipient={healthAiRecipient()} />;
 }

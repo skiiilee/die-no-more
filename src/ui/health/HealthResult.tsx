@@ -12,6 +12,7 @@ import {
 } from "@/types/health";
 import styles from "@/ui/plants/plants.module.css";
 import { Spinner } from "@/ui/shell/Spinner";
+import { AiJudgePanel, type AiRecipient } from "./AiJudgePanel";
 import { requestExplanation } from "./health-client";
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul" });
@@ -33,10 +34,15 @@ function AiMark() {
 export function HealthResult({
   answer,
   input,
+  photos = [],
+  aiRecipient = null,
   onAgain,
 }: {
   answer: Extract<HealthAnswer, { kind: "ok" | "unclear" }>;
   input: HealthInput;
+  /** The photos sent to Pl@ntNet, for asking the AI after '판단 어려움' (ADR-0006 D6). */
+  photos?: Blob[];
+  aiRecipient?: AiRecipient | null;
   onAgain: () => void;
 }) {
   const candidates = answer.kind === "ok" ? answer.candidates : [];
@@ -111,6 +117,10 @@ export function HealthResult({
           </p>
         ) : null}
       </div>
+
+      {candidates.length === 0 && aiRecipient && photos.length > 0 ? (
+        <AiJudgePanel photos={photos} input={input} recipient={aiRecipient} />
+      ) : null}
 
       <div className={styles.card}>
         <h2 className={styles.cardTitle}>먼저 확인할 내용</h2>

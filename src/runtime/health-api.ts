@@ -5,14 +5,15 @@ import type { SupabaseServerClient } from "@/repo/supabase-client";
 import { supabaseUsageStore } from "@/repo/usage-repo";
 import { careAiUsage } from "@/service/adapters/care-ai";
 import { healthAi } from "@/service/adapters/health-ai";
+import { healthVision } from "@/service/adapters/health-ai-vision";
 import { httpClient, providerClient, REQUEST_BUDGET_MS } from "@/service/adapters/http";
 import { sharpImageProcessor } from "@/service/adapters/image";
 import { plantnetUsage } from "@/service/adapters/plantnet";
 import { plantnetHealth } from "@/service/adapters/plantnet-health";
-import { checkHealth, explainHealth, readCandidates, readHealthInput } from "@/service/health-check";
+import { checkHealth, explainHealth, judgeHealth, readCandidates, readHealthInput } from "@/service/health-check";
 import { PHOTO_MESSAGES } from "@/service/photo-cleaning";
 import { utcDayStart, usageGate } from "@/service/provider-usage";
-import type { HealthAnswer } from "@/types/health";
+import type { HealthAnswer, JudgeAnswer } from "@/types/health";
 import { IDENTIFY_BODY_MAX, isSameOrigin, readBodyWithin, signedIn } from "./photo-api";
 
 /**
@@ -39,6 +40,35 @@ const HEALTH_STATUS: Record<HealthAnswer["kind"], number> = {
   rejected: 422,
   unavailable: 503,
 };
+
+const JUDGE_STATUS: Record<JudgeAnswer["kind"], number> = {
+  ok: 200,
+  none: 200,
+  invalid: 400,
+  consent_required: 400,
+  quota: 429,
+  unavailable: 503,
+};
+
+/**
+ * The care AI endpoint for one health AI request (ADR-0006 D2): same model,
+ * key and `care_ai` daily limit, with its own budget. Null when not configured.
+ */
+function aiClient(client: SupabaseServerClient) {
+  const config = readProviderConfig().careAi;
+  if (!config) return null;
+  const http = httpClient({ deadline: Date.now() + EXPLAIN_BUDGET_MS, attemptMaxMs: EXPLAIN_ATTEMPT_MAX_MS });
+  const provider = providerClient(
+    http,
+    usageGate({
+      usage: supabaseUsageStore(client),
+      provider: "care_ai",
+      dailyLimit: config.dailyLimit,
+      classify: (result) => careAiUsage(result),
+    }),
+  );
+  return { provider, options: { baseUrl: config.baseUrl, key: config.key, model: config.model } };
+}
 
 /** The chosen pot's species name for the AI, when the pot is the user's own (RLS) and has one. */
 async function speciesOf(client: SupabaseServerClient, potId: string | null): Promise<string | null> {
@@ -127,23 +157,8 @@ export async function handleHealthExplain(request: Request): Promise<Response> {
   const input = readHealthInput({ symptoms: raw?.symptoms, noticed: raw?.noticed, notes: raw?.notes, potId: raw?.potId });
   if (!candidates || !input.ok) return json({ kind: "unavailable" }, 400);
 
-  const http = httpClient({ deadline: Date.now() + EXPLAIN_BUDGET_MS, attemptMaxMs: EXPLAIN_ATTEMPT_MAX_MS });
-  const config = readProviderConfig().careAi;
-  // The same model, key and daily limit as the care AI (ADR-0006 D2).
-  const adapter = config
-    ? healthAi(
-        providerClient(
-          http,
-          usageGate({
-            usage: supabaseUsageStore(user.client),
-            provider: "care_ai",
-            dailyLimit: config.dailyLimit,
-            classify: (result) => careAiUsage(result),
-          }),
-        ),
-        { baseUrl: config.baseUrl, key: config.key, model: config.model },
-      )
-    : null;
+  const ai = aiClient(user.client);
+  const adapter = ai ? healthAi(ai.provider, ai.options) : null;
 
   const answer = await explainHealth(adapter, {
     candidates,
@@ -151,4 +166,49 @@ export async function handleHealthExplain(request: Request): Promise<Response> {
     speciesName: await speciesOf(user.client, input.input.potId),
   });
   return json(answer, 200);
+}
+
+/**
+ * POST /api/health-checks/ai-judge: when Pl@ntNet found nothing, the photo
+ * AI's reading (ADR-0006 D6). Multipart like /api/health-checks: `consent`
+ * here is the consent to send these photos to the AI, for this request only.
+ */
+export async function handleHealthJudge(request: Request): Promise<Response> {
+  if (!isSameOrigin(request)) return json({ kind: "forbidden" }, 403);
+  const user = await signedIn();
+  if (!user) return json({ kind: "signed_out" }, 401);
+
+  const tooLarge = () => json({ kind: "invalid", message: PHOTO_MESSAGES.requestTooLarge }, 413);
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > IDENTIFY_BODY_MAX) return tooLarge();
+  const body = await readBodyWithin(request, IDENTIFY_BODY_MAX);
+  if (body === "too_large") return tooLarge();
+  const form = await readForm(request, body);
+  const input = readHealthInput(form.fields);
+  if (!input.ok) return json({ kind: "invalid", message: input.message }, 400);
+
+  const ai = aiClient(user.client);
+  const answer = await judgeHealth(
+    { image: sharpImageProcessor, vision: ai ? healthVision(ai.provider, ai.options) : null },
+    {
+      consent: form.consent,
+      photos: form.photos,
+      input: input.input,
+      speciesName: await speciesOf(user.client, input.input.potId),
+    },
+  );
+  return json(answer, JUDGE_STATUS[answer.kind]);
+}
+
+/**
+ * Who receives the photos if the user asks the AI (S07-B consent text), or
+ * null when the AI is not configured and the option is hidden. The adapter
+ * stays provider-neutral (ADR-0005 D1); only this label names the service.
+ */
+export function healthAiRecipient(): { name: string; model: string } | null {
+  const config = readProviderConfig().careAi;
+  if (!config) return null;
+  const host = new URL(config.baseUrl).host;
+  const name = host === "generativelanguage.googleapis.com" ? "Google Gemini" : host;
+  return { name, model: config.model };
 }

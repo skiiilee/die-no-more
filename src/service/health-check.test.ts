@@ -3,7 +3,8 @@ import { fixedChecks, type HealthInput } from "@/types/health";
 import { fakeImageProcessor } from "../../tests/fakes/photos";
 import type { HealthAiAdapter, HealthAiAnswer } from "./adapters/health-ai";
 import type { DiagnoseResult, PlantnetHealthAdapter } from "./adapters/plantnet-health";
-import { checkHealth, explainHealth, NOTES_TOO_LONG, readCandidates, readHealthInput, type HealthDeps } from "./health-check";
+import type { HealthVisionAdapter, VisionAnswer } from "./adapters/health-ai-vision";
+import { checkHealth, explainHealth, judgeHealth, NOTES_TOO_LONG, readCandidates, readHealthInput, type HealthDeps } from "./health-check";
 import { PHOTO_COUNT_MESSAGE } from "./photo-identification";
 
 const P1 = new Uint8Array([0xff, 0xd8, 0xff, 1]);
@@ -127,5 +128,37 @@ describe("fixedChecks", () => {
     expect(checks).toHaveLength(5);
     expect(checks[3]).toContain("갈변");
     expect(checks[4]).toContain("벌레");
+  });
+});
+
+describe("judgeHealth (ADR-0006 D6)", () => {
+  const INPUT: HealthInput = { symptoms: ["browning"], noticed: "today", notes: "거실 창가, 연락처 010", potId: null };
+  function vision(answer: VisionAnswer) {
+    return { judge: vi.fn<HealthVisionAdapter["judge"]>(async () => answer) };
+  }
+  const judge = (v: ReturnType<typeof vision> | null, consent = true, photos = [P1], image = fakeImageProcessor()) =>
+    judgeHealth({ image, vision: v }, { consent, photos, input: INPUT, speciesName: "Ficus elastica" });
+
+  it("sends nothing without this request's AI photo consent", async () => {
+    const v = vision({ kind: "none" });
+    const image = fakeImageProcessor();
+    expect(await judge(v, false, [P1], image)).toEqual({ kind: "consent_required" });
+    expect(v.judge).not.toHaveBeenCalled();
+    expect(image.toCleanJpeg).not.toHaveBeenCalled();
+  });
+
+  it("sends the cleaned photos with labels and the species, never the free-text notes", async () => {
+    const v = vision({ kind: "none" });
+    expect(await judge(v)).toEqual({ kind: "none" });
+    expect(v.judge).toHaveBeenCalledWith({ photos: [CLEAN1], symptoms: ["잎 갈변"], noticed: "오늘", speciesName: "Ficus elastica" });
+    expect(JSON.stringify(v.judge.mock.calls[0][0])).not.toContain("연락처");
+  });
+
+  it("needs 1–5 readable photos and a configured AI", async () => {
+    expect(await judge(vision({ kind: "none" }), true, [])).toEqual({ kind: "invalid", message: PHOTO_COUNT_MESSAGE });
+    expect(await judge(null)).toEqual({ kind: "unavailable" });
+    const v = vision({ kind: "none" });
+    expect((await judge(v, true, [P1], fakeImageProcessor({ unreadable: true }))).kind).toBe("invalid");
+    expect(v.judge).not.toHaveBeenCalled();
   });
 });

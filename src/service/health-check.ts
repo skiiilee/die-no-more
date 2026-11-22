@@ -6,11 +6,13 @@ import {
   type HealthAnswer,
   type HealthCandidate,
   type HealthInput,
+  type JudgeAnswer,
   type NoticedCode,
   type SymptomCode,
 } from "@/types/health";
 import { PHOTO_RULES } from "@/types/photo";
 import type { HealthAiAdapter } from "./adapters/health-ai";
+import type { HealthVisionAdapter } from "./adapters/health-ai-vision";
 import type { ImageProcessor } from "./adapters/image";
 import type { PlantnetHealthAdapter } from "./adapters/plantnet-health";
 import { cleanPhotos } from "./photo-cleaning";
@@ -126,4 +128,29 @@ export async function explainHealth(
   });
   if (answer.kind === "ok") return answer;
   return answer.kind === "none" ? { kind: "none" } : { kind: "unavailable" };
+}
+
+/**
+ * S07-B when Pl@ntNet found nothing: the photo AI's reading (ADR-0006 D6).
+ * Needs this request's own AI photo consent; without it no photo is decoded
+ * or sent. Photos are cleaned (EXIF removed) first; notes are never sent.
+ */
+export async function judgeHealth(
+  deps: { image: HealthDeps["image"]; vision: HealthVisionAdapter | null },
+  request: { consent: boolean; photos: Uint8Array[]; input: HealthInput; speciesName: string | null },
+): Promise<JudgeAnswer> {
+  if (request.consent !== true) return { kind: "consent_required" };
+  if (request.photos.length < 1 || request.photos.length > PHOTO_RULES.maxCount) {
+    return { kind: "invalid", message: PHOTO_COUNT_MESSAGE };
+  }
+  if (!deps.vision) return { kind: "unavailable" };
+  const cleaned = await cleanPhotos(deps.image, request.photos);
+  if (!cleaned.ok) return { kind: "invalid", message: cleaned.message };
+  const answer = await deps.vision.judge({
+    photos: cleaned.photos,
+    symptoms: request.input.symptoms.map((code) => label(SYMPTOMS, code)),
+    noticed: label(NOTICED, request.input.noticed),
+    speciesName: request.speciesName,
+  });
+  return answer;
 }

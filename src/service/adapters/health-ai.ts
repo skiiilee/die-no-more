@@ -77,7 +77,8 @@ export function safeText(value: unknown): string | null {
   return FORBIDDEN.some((pattern) => pattern.test(trimmed)) ? null : trimmed;
 }
 
-function safeList(value: unknown): string[] {
+/** Checked texts, without repeats, at most MAX_ITEMS. */
+export function safeList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const kept: string[] = [];
   for (const item of value) {
@@ -87,7 +88,8 @@ function safeList(value: unknown): string[] {
   return kept.slice(0, MAX_ITEMS);
 }
 
-function unfence(content: string): string {
+/** Strips a Markdown code fence some models add around JSON. */
+export function unfence(content: string): string {
   return content.replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
 }
 
