@@ -58,12 +58,14 @@ export type HealthCandidate = { code: string; name: string; score: number };
 /**
  * POST /api/health-checks answer.
  * - ok: possible causes, best first (at most 3, score ≥ HEALTH_MIN_SCORE).
+ *   `token` (ok and unclear) is the server-signed result the AI requests must
+ *   bring back (PR #23 review P2); it expires after 30 minutes.
  * - unclear: Pl@ntNet answered but nothing passed the bar: '판단 어려움'.
  * - invalid / consent_required / quota / rejected / unavailable: as for identification.
  */
 export type HealthAnswer =
-  | { kind: "ok"; candidates: HealthCandidate[]; analyzedAt: string; speciesName: string | null }
-  | { kind: "unclear"; analyzedAt: string; speciesName: string | null }
+  | { kind: "ok"; candidates: HealthCandidate[]; analyzedAt: string; speciesName: string | null; token: string }
+  | { kind: "unclear"; analyzedAt: string; speciesName: string | null; token: string }
   | { kind: "invalid"; message: string }
   | { kind: "consent_required" }
   | { kind: "quota" }
@@ -135,11 +137,15 @@ export type AiJudgement = {
  * - ok: the AI's reading.
  * - none: the AI saw nothing it could say safely ('판단 어려움' stays).
  * - consent_required: the request did not carry this request's AI photo consent.
+ * - stale: no valid result token (expired or missing): check again first.
+ * - not_allowed: the token is not an 'unclear' result for these same photos (ADR-0006 D6).
  */
 export type JudgeAnswer =
   | { kind: "ok"; judgement: AiJudgement }
   | { kind: "none" }
   | { kind: "invalid"; message: string }
   | { kind: "consent_required" }
+  | { kind: "stale" }
+  | { kind: "not_allowed" }
   | { kind: "quota" }
   | { kind: "unavailable" };

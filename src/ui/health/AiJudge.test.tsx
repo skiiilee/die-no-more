@@ -8,7 +8,7 @@ import { HealthResult } from "./HealthResult";
 const { judge, explain } = vi.hoisted(() => ({ judge: vi.fn(), explain: vi.fn() }));
 vi.mock("./health-client", () => ({ requestAiJudgement: judge, requestExplanation: explain }));
 
-const UNCLEAR: HealthAnswer = { kind: "unclear", analyzedAt: "2026-11-22T06:00:00Z", speciesName: null };
+const UNCLEAR: HealthAnswer = { kind: "unclear", analyzedAt: "2026-11-22T06:00:00Z", speciesName: null, token: "unclear-result" };
 const INPUT: HealthInput = { symptoms: ["browning"], noticed: "today", notes: "개인 메모", potId: null };
 const PHOTOS = [new Blob(["leaf"], { type: "image/jpeg" })];
 const RECIPIENT = { name: "Google Gemini", model: "gemini-3.5-flash-lite" };
@@ -42,7 +42,13 @@ describe("S07-B '판단 어려움' → AI photo reading (ADR-0006 D6)", () => {
     renderUnclear(null);
     expect(screen.queryByRole("button", { name: "AI에게 사진으로 물어보기" })).toBeNull();
     cleanup();
-    const found: HealthAnswer = { kind: "ok", candidates: [{ code: "BOTRCI", name: "Botrytis cinerea", score: 0.3 }], analyzedAt: UNCLEAR.analyzedAt, speciesName: null };
+    const found: HealthAnswer = {
+      kind: "ok",
+      candidates: [{ code: "BOTRCI", name: "Botrytis cinerea", score: 0.3 }],
+      analyzedAt: UNCLEAR.analyzedAt,
+      speciesName: null,
+      token: "ok-result",
+    };
     render(<HealthResult answer={found} input={INPUT} photos={PHOTOS} aiRecipient={RECIPIENT} onAgain={() => {}} />);
     expect(screen.queryByRole("button", { name: "AI에게 사진으로 물어보기" })).toBeNull();
   });
@@ -61,11 +67,22 @@ describe("S07-B '판단 어려움' → AI photo reading (ADR-0006 D6)", () => {
     renderUnclear();
     fireEvent.click(consentBox());
     await act(async () => fireEvent.click(askButton()));
-    expect(judge).toHaveBeenCalledWith(PHOTOS, true, INPUT);
+    expect(judge).toHaveBeenCalledWith(PHOTOS, true, INPUT, "unclear-result");
     expect(screen.getByRole("heading", { name: "AI의 사진 판단 (참고)" })).toBeTruthy();
     expect(screen.getByRole("list", { name: "AI가 본 가능한 원인" }).textContent).toContain("건조 가능성");
     expect(screen.getAllByText("AI 생성")).toHaveLength(3);
     expect(screen.getByText(/확정 진단이 아니고 사실 확인을 거치지 않았으며 틀릴 수/)).toBeTruthy();
+  });
+
+  it("tells the user to check again when the server refuses an old or unrelated result", async () => {
+    judge.mockResolvedValueOnce({ kind: "stale" }).mockResolvedValueOnce({ kind: "not_allowed" });
+    renderUnclear();
+    fireEvent.click(consentBox());
+    await act(async () => fireEvent.click(askButton()));
+    expect(screen.getByRole("alert").textContent).toBe(JUDGE_MESSAGES.stale);
+    fireEvent.click(consentBox());
+    await act(async () => fireEvent.click(askButton()));
+    expect(screen.getByRole("alert").textContent).toBe(JUDGE_MESSAGES.not_allowed);
   });
 
   it("says when the AI found nothing or failed, and asks for consent again", async () => {

@@ -38,13 +38,23 @@ const MAX_ITEMS = 4;
 
 /**
  * Words that mark a treatment or a definite diagnosis. A text containing one
- * is dropped, not edited (ADR-0006 D3: no risky action is ever shown).
+ * is dropped, not edited (ADR-0006 D3: no risky action is ever shown). This is
+ * a guard, not proof of safety (PR #23 review): F05 accuracy checks score any
+ * treatment or certainty in AI text as a separate failure.
  */
 const FORBIDDEN = [
-  /농약|살충제|살균제|살비제|약제|방제|살포|희석|처방|치료제|소독약|구충/,
-  /확진|진단됩니다|확실히|틀림없/,
-  // Doses: "10ml", "2g", "1000배".
-  /\d+\s*(?:ml|mL|㎖|그램|배|g)(?![a-zA-Z])/,
+  // Chemicals and treatments, by stem so 살충제/살충 스프레이 both match.
+  /농약|살충|살균|살비|살선충|제초|약제|약품|약물|방제|살포|희석|처방|치료|소독|구충|훈증|항생/,
+  // Product and household remedies people suggest for plants.
+  /님\s*오일|니임|neem|베이킹\s*소다|과산화수소|식초|락스|표백|알코올|에탄올|세제|비눗물|계피|마늘\s*물|니코틴|담배\s*물|보르도|유황|석회/i,
+  // Applying something to the plant.
+  /뿌려|뿌리세요|분무|분사|도포|발라|바르세요|약을|약으로/,
+  /pesticide|fungicide|insecticide|miticide|chemical|treatment|spray|dose/i,
+  // Certainty instead of possibility.
+  /확진|진단됩니다|진단입니다|확실|틀림없|분명|명백|100\s*%|원인입니다|때문입니다|병입니다|걸렸습니다|감염되었|감염됐/,
+  // Doses: "10ml", "2g", "1000배", "5%", "한 스푼", "몇 방울".
+  /\d+\s*(?:ml|mL|㎖|cc|리터|그램|kg|배|%|방울|g|l|L)(?![a-zA-Z])/,
+  /스푼|큰술|작은술|방울씩/,
 ];
 
 export function buildHealthPrompt(): string {

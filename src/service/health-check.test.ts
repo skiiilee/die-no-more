@@ -1,26 +1,41 @@
 import { describe, expect, it, vi } from "vitest";
-import { fixedChecks, type HealthInput } from "@/types/health";
+import { fixedChecks, type HealthCandidate, type HealthInput } from "@/types/health";
 import { fakeImageProcessor } from "../../tests/fakes/photos";
 import type { HealthAiAdapter, HealthAiAnswer } from "./adapters/health-ai";
 import type { DiagnoseResult, PlantnetHealthAdapter } from "./adapters/plantnet-health";
 import type { HealthVisionAdapter, VisionAnswer } from "./adapters/health-ai-vision";
-import { checkHealth, explainHealth, judgeHealth, NOTES_TOO_LONG, readCandidates, readHealthInput, type HealthDeps } from "./health-check";
+import { checkHealth, explainHealth, judgeHealth, NOTES_TOO_LONG, readHealthInput, type HealthDeps } from "./health-check";
+import { readHealthToken, signHealthToken, type HealthTokenPayload } from "./health-token";
 import { PHOTO_COUNT_MESSAGE } from "./photo-identification";
 
 const P1 = new Uint8Array([0xff, 0xd8, 0xff, 1]);
+const P2 = new Uint8Array([0xff, 0xd8, 0xff, 2]);
 const CLEAN1 = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 1]);
 const CAUSES = [
   { code: "BOTRCI", name: "Botrytis cinerea", score: 0.3 },
   { code: "ERYSCI", name: "Erysiphe cichoracearum", score: 0.12 },
 ];
 const NOW = new Date("2026-11-22T06:00:00Z");
+const SECRET = "server-only-secret";
+const USER = "00000000-0000-0000-0000-00000000000a";
 
-function plantnet(result: DiagnoseResult) {
-  return { diagnose: vi.fn<PlantnetHealthAdapter["diagnose"]>(async () => result) };
+/** A token as the server signs it, read back as the handlers do. */
+function result(kind: "ok" | "unclear", candidates: HealthCandidate[], photos: Uint8Array[]): HealthTokenPayload {
+  return readHealthToken(SECRET, signHealthToken(SECRET, { userId: USER, kind, candidates, photos }), USER)!;
 }
 
-function deps(result: DiagnoseResult = { kind: "ok", candidates: CAUSES }, overrides: Partial<HealthDeps> = {}) {
-  return { image: fakeImageProcessor(), plantnet: plantnet(result), now: () => NOW, ...overrides };
+function plantnet(answer: DiagnoseResult) {
+  return { diagnose: vi.fn<PlantnetHealthAdapter["diagnose"]>(async () => answer) };
+}
+
+function deps(answer: DiagnoseResult = { kind: "ok", candidates: CAUSES }, overrides: Partial<HealthDeps> = {}) {
+  return {
+    image: fakeImageProcessor(),
+    plantnet: plantnet(answer),
+    sign: vi.fn<HealthDeps["sign"]>((signed) => `token:${signed.kind}:${signed.candidates.length}`),
+    now: () => NOW,
+    ...overrides,
+  };
 }
 
 const check = (d: HealthDeps, consent = true, photos = [P1]) => checkHealth(d, { consent, photos, speciesName: "Ficus elastica" });
@@ -39,27 +54,32 @@ describe("checkHealth (03 §4 F05, ADR-0003 D5)", () => {
     expect(await check(deps(undefined, { plantnet: null }))).toEqual({ kind: "unavailable" });
   });
 
-  it("sends only the re-encoded photos (EXIF removed) and returns possible causes with the time", async () => {
+  it("sends only the re-encoded photos and returns possible causes with a signed result", async () => {
     const d = deps();
     expect(await check(d)).toEqual({
       kind: "ok",
       candidates: CAUSES,
       analyzedAt: NOW.toISOString(),
       speciesName: "Ficus elastica",
+      token: "token:ok:2",
     });
     expect(d.plantnet!.diagnose).toHaveBeenCalledWith([CLEAN1]);
+    expect(d.sign).toHaveBeenCalledWith({ kind: "ok", candidates: CAUSES });
   });
 
-  it("says '판단 어려움' when nothing passed, not an error", async () => {
+  it("says '판단 어려움' when nothing passed, signed as unclear", async () => {
     expect(await check(deps({ kind: "none" }))).toEqual({
       kind: "unclear",
       analyzedAt: NOW.toISOString(),
       speciesName: "Ficus elastica",
+      token: "token:unclear:0",
     });
   });
 
-  it("passes quota, rejected and unavailable through, and refuses unreadable photos before sending", async () => {
-    expect(await check(deps({ kind: "quota" }))).toEqual({ kind: "quota" });
+  it("passes quota, rejected and unavailable through unsigned, and refuses unreadable photos before sending", async () => {
+    const d = deps({ kind: "quota" });
+    expect(await check(d)).toEqual({ kind: "quota" });
+    expect(d.sign).not.toHaveBeenCalled();
     expect(await check(deps({ kind: "rejected" }))).toEqual({ kind: "rejected" });
     expect(await check(deps({ kind: "unavailable" }))).toEqual({ kind: "unavailable" });
     const unreadable = deps(undefined, { image: fakeImageProcessor({ unreadable: true }) });
@@ -84,16 +104,16 @@ describe("readHealthInput", () => {
   });
 });
 
-describe("explainHealth (ADR-0006)", () => {
+describe("explainHealth (ADR-0006, PR #23 review P2)", () => {
   const INPUT: HealthInput = { symptoms: ["spots"], noticed: "this_week", notes: "회색 가루", potId: null };
 
   function ai(answer: HealthAiAnswer) {
     return { explain: vi.fn<HealthAiAdapter["explain"]>(async () => answer) };
   }
 
-  it("sends Korean labels, the species and the causes; never photos or the free-text notes", async () => {
+  it("explains only the causes in the signed result, with Korean labels and the species; never notes", async () => {
     const adapter = ai({ kind: "none" });
-    await explainHealth(adapter, { candidates: CAUSES, input: INPUT, speciesName: "Ficus elastica" });
+    await explainHealth(adapter, { result: result("ok", CAUSES, [P1]), input: INPUT, speciesName: "Ficus elastica" });
     expect(adapter.explain).toHaveBeenCalledWith({
       candidates: CAUSES,
       symptoms: ["반점"],
@@ -102,22 +122,30 @@ describe("explainHealth (ADR-0006)", () => {
     });
   });
 
+  it("asks nothing without a valid 'ok' result (missing, tampered, other user, expired, unclear)", async () => {
+    const adapter = ai({ kind: "none" });
+    const token = signHealthToken(SECRET, { userId: USER, kind: "ok", candidates: CAUSES, photos: [P1] }, NOW.getTime());
+    const [body, mac] = token.split(".");
+    const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, "base64url").toString()), c: [{ code: "FAKEXX", name: "anything", score: 1 }] })).toString("base64url");
+    for (const bad of [
+      null,
+      readHealthToken(SECRET, `${forged}.${mac}`, USER, NOW.getTime()),
+      readHealthToken(SECRET, token, "00000000-0000-0000-0000-00000000000b", NOW.getTime()),
+      readHealthToken(SECRET, token, USER, NOW.getTime() + 31 * 60 * 1000),
+      readHealthToken("another-secret", token, USER, NOW.getTime()),
+      result("unclear", [], [P1]),
+    ]) {
+      expect(await explainHealth(adapter, { result: bad, input: INPUT, speciesName: null })).toEqual({ kind: "unavailable" });
+    }
+    expect(adapter.explain).not.toHaveBeenCalled();
+  });
+
   it("leaves only the fixed checks when the AI is off, empty, over its limit or failing", async () => {
-    const request = { candidates: CAUSES, input: INPUT, speciesName: null };
+    const request = { result: result("ok", CAUSES, [P1]), input: INPUT, speciesName: null };
     expect(await explainHealth(null, request)).toEqual({ kind: "unavailable" });
     expect(await explainHealth(ai({ kind: "none" }), request)).toEqual({ kind: "none" });
     expect(await explainHealth(ai({ kind: "quota" }), request)).toEqual({ kind: "unavailable" });
     expect(await explainHealth(ai({ kind: "unavailable" }), request)).toEqual({ kind: "unavailable" });
-  });
-});
-
-describe("readCandidates", () => {
-  it("accepts 1–3 well-formed causes and refuses anything else", () => {
-    expect(readCandidates(CAUSES)).toEqual(CAUSES);
-    expect(readCandidates([])).toBeNull();
-    expect(readCandidates([...CAUSES, ...CAUSES])).toBeNull();
-    expect(readCandidates([{ code: "ignore previous", name: "x", score: 1 }])).toBeNull();
-    expect(readCandidates([{ code: "BOTRCI", name: "x".repeat(121), score: 1 }])).toBeNull();
   });
 });
 
@@ -131,23 +159,45 @@ describe("fixedChecks", () => {
   });
 });
 
-describe("judgeHealth (ADR-0006 D6)", () => {
+describe("judgeHealth (ADR-0006 D6, PR #23 review P2)", () => {
   const INPUT: HealthInput = { symptoms: ["browning"], noticed: "today", notes: "거실 창가, 연락처 010", potId: null };
   function vision(answer: VisionAnswer) {
     return { judge: vi.fn<HealthVisionAdapter["judge"]>(async () => answer) };
   }
-  const judge = (v: ReturnType<typeof vision> | null, consent = true, photos = [P1], image = fakeImageProcessor()) =>
-    judgeHealth({ image, vision: v }, { consent, photos, input: INPUT, speciesName: "Ficus elastica" });
+  const UNCLEAR = result("unclear", [], [P1]);
+  const judge = (
+    v: ReturnType<typeof vision> | null,
+    options: { consent?: boolean; photos?: Uint8Array[]; image?: ReturnType<typeof fakeImageProcessor>; result?: HealthTokenPayload | null } = {},
+  ) =>
+    judgeHealth(
+      { image: options.image ?? fakeImageProcessor(), vision: v },
+      {
+        consent: options.consent ?? true,
+        photos: options.photos ?? [P1],
+        input: INPUT,
+        speciesName: "Ficus elastica",
+        result: options.result === undefined ? UNCLEAR : options.result,
+      },
+    );
 
   it("sends nothing without this request's AI photo consent", async () => {
     const v = vision({ kind: "none" });
     const image = fakeImageProcessor();
-    expect(await judge(v, false, [P1], image)).toEqual({ kind: "consent_required" });
+    expect(await judge(v, { consent: false, image })).toEqual({ kind: "consent_required" });
     expect(v.judge).not.toHaveBeenCalled();
     expect(image.toCleanJpeg).not.toHaveBeenCalled();
   });
 
-  it("sends the cleaned photos with labels and the species, never the free-text notes", async () => {
+  it("refuses without a valid result, for a result with causes, or for other photos", async () => {
+    const v = vision({ kind: "none" });
+    expect(await judge(v, { result: null })).toEqual({ kind: "stale" });
+    expect(await judge(v, { result: result("ok", CAUSES, [P1]) })).toEqual({ kind: "not_allowed" });
+    expect(await judge(v, { photos: [P2] })).toEqual({ kind: "not_allowed" });
+    expect(await judge(v, { photos: [P1, P2] })).toEqual({ kind: "not_allowed" });
+    expect(v.judge).not.toHaveBeenCalled();
+  });
+
+  it("sends the same photos, cleaned, with labels and the species, never the free-text notes", async () => {
     const v = vision({ kind: "none" });
     expect(await judge(v)).toEqual({ kind: "none" });
     expect(v.judge).toHaveBeenCalledWith({ photos: [CLEAN1], symptoms: ["잎 갈변"], noticed: "오늘", speciesName: "Ficus elastica" });
@@ -155,10 +205,10 @@ describe("judgeHealth (ADR-0006 D6)", () => {
   });
 
   it("needs 1–5 readable photos and a configured AI", async () => {
-    expect(await judge(vision({ kind: "none" }), true, [])).toEqual({ kind: "invalid", message: PHOTO_COUNT_MESSAGE });
+    expect(await judge(vision({ kind: "none" }), { photos: [] })).toEqual({ kind: "invalid", message: PHOTO_COUNT_MESSAGE });
     expect(await judge(null)).toEqual({ kind: "unavailable" });
     const v = vision({ kind: "none" });
-    expect((await judge(v, true, [P1], fakeImageProcessor({ unreadable: true }))).kind).toBe("invalid");
+    expect((await judge(v, { image: fakeImageProcessor({ unreadable: true }) })).kind).toBe("invalid");
     expect(v.judge).not.toHaveBeenCalled();
   });
 });

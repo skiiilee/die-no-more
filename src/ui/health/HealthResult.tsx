@@ -51,7 +51,7 @@ export function HealthResult({
   useEffect(() => {
     if (candidates.length === 0) return;
     let live = true;
-    void requestExplanation(candidates, input).then((result) => {
+    void requestExplanation(answer.token, input).then((result) => {
       if (live) setExplained(result);
     });
     return () => {
@@ -119,7 +119,7 @@ export function HealthResult({
       </div>
 
       {candidates.length === 0 && aiRecipient && photos.length > 0 ? (
-        <AiJudgePanel photos={photos} input={input} recipient={aiRecipient} />
+        <AiJudgePanel photos={photos} input={input} token={answer.token} recipient={aiRecipient} />
       ) : null}
 
       <div className={styles.card}>

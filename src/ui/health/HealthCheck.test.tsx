@@ -21,6 +21,7 @@ const OK: HealthAnswer = {
   ],
   analyzedAt: "2026-11-22T06:00:00Z",
   speciesName: "Ficus elastica",
+  token: "signed-result",
 };
 
 beforeEach(() => {
@@ -118,7 +119,8 @@ describe("S07-B 건강 결과 (03 §4 result structure, ADR-0006)", () => {
     await openWithPhoto();
     await analyze();
     expect(screen.getByRole("status").textContent).toContain("쉬운 말로 풀어 쓰는 중");
-    expect(explain).toHaveBeenCalledWith(OK.candidates, { symptoms: [], noticed: "unknown", notes: "", potId: null });
+    // The server takes the causes from the signed result, not from what the browser sends.
+    expect(explain).toHaveBeenCalledWith("signed-result", { symptoms: [], noticed: "unknown", notes: "", potId: null });
 
     await act(async () =>
       resolve({
@@ -147,7 +149,7 @@ describe("S07-B 건강 결과 (03 §4 result structure, ADR-0006)", () => {
   });
 
   it("says '판단 어려움' when nothing passed, without asking the AI", async () => {
-    check.mockResolvedValueOnce({ kind: "unclear", analyzedAt: OK.analyzedAt, speciesName: null });
+    check.mockResolvedValueOnce({ kind: "unclear", analyzedAt: OK.analyzedAt, speciesName: null, token: "t" });
     await openWithPhoto();
     await analyze();
     expect(screen.getByText(/판단 어려움/)).toBeTruthy();

@@ -10,7 +10,8 @@ import { httpClient, providerClient, REQUEST_BUDGET_MS } from "@/service/adapter
 import { sharpImageProcessor } from "@/service/adapters/image";
 import { plantnetUsage } from "@/service/adapters/plantnet";
 import { plantnetHealth } from "@/service/adapters/plantnet-health";
-import { checkHealth, explainHealth, judgeHealth, readCandidates, readHealthInput } from "@/service/health-check";
+import { checkHealth, explainHealth, judgeHealth, readHealthInput } from "@/service/health-check";
+import { readHealthToken, signHealthToken } from "@/service/health-token";
 import { PHOTO_MESSAGES } from "@/service/photo-cleaning";
 import { utcDayStart, usageGate } from "@/service/provider-usage";
 import type { HealthAnswer, JudgeAnswer } from "@/types/health";
@@ -46,9 +47,21 @@ const JUDGE_STATUS: Record<JudgeAnswer["kind"], number> = {
   none: 200,
   invalid: 400,
   consent_required: 400,
+  stale: 409,
+  not_allowed: 403,
   quota: 429,
   unavailable: 503,
 };
+
+/**
+ * Key material for the result token (PR #23 review P2): the server-only
+ * Pl@ntNet key, never sent anywhere else; health-token.ts derives a separate
+ * signing key from it with a purpose label. Null when Pl@ntNet is not set up,
+ * in which case there are no results to sign either.
+ */
+function tokenSecret(): string | null {
+  return readProviderConfig().plantnet?.key ?? null;
+}
 
 /**
  * The care AI endpoint for one health AI request (ADR-0006 D2): same model,
@@ -94,9 +107,10 @@ async function readForm(request: Request, body: Uint8Array<ArrayBuffer>) {
       consent: form.get("consent") === "true",
       photos,
       fields: { symptoms: form.getAll("symptoms"), noticed: form.get("noticed"), notes: form.get("notes"), potId: form.get("potId") },
+      token: form.get("token"),
     };
   } catch {
-    return { consent: false, photos: [], fields: { symptoms: [], noticed: null, notes: null, potId: null } };
+    return { consent: false, photos: [], fields: { symptoms: [], noticed: null, notes: null, potId: null }, token: null };
   }
 }
 
@@ -133,8 +147,14 @@ export async function handleHealthCheck(request: Request): Promise<Response> {
       )
     : null;
 
+  const secret = config?.key ?? "";
   const answer = await checkHealth(
-    { image: sharpImageProcessor, plantnet: adapter },
+    {
+      image: sharpImageProcessor,
+      plantnet: adapter,
+      // Bound to this user and the photos exactly as received; the AI requests must bring it back.
+      sign: (result) => signHealthToken(secret, { userId: user.userId, ...result, photos: form.photos }),
+    },
     { consent: form.consent, photos: form.photos, speciesName: await speciesOf(user.client, input.input.potId) },
   );
   return json(answer, HEALTH_STATUS[answer.kind]);
@@ -153,15 +173,17 @@ export async function handleHealthExplain(request: Request): Promise<Response> {
   } catch {
     return json({ kind: "unavailable" }, 400);
   }
-  const candidates = readCandidates(raw?.candidates);
-  const input = readHealthInput({ symptoms: raw?.symptoms, noticed: raw?.noticed, notes: raw?.notes, potId: raw?.potId });
-  if (!candidates || !input.ok) return json({ kind: "unavailable" }, 400);
+  // The causes come only from the signed token, never from the body (PR #23 review P2).
+  const secret = tokenSecret();
+  const result = secret ? readHealthToken(secret, raw?.token, user.userId) : null;
+  const input = readHealthInput({ symptoms: raw?.symptoms, noticed: raw?.noticed, notes: null, potId: raw?.potId });
+  if (!result || !input.ok) return json({ kind: "unavailable" }, 400);
 
   const ai = aiClient(user.client);
   const adapter = ai ? healthAi(ai.provider, ai.options) : null;
 
   const answer = await explainHealth(adapter, {
-    candidates,
+    result,
     input: input.input,
     speciesName: await speciesOf(user.client, input.input.potId),
   });
@@ -187,6 +209,7 @@ export async function handleHealthJudge(request: Request): Promise<Response> {
   const input = readHealthInput(form.fields);
   if (!input.ok) return json({ kind: "invalid", message: input.message }, 400);
 
+  const secret = tokenSecret();
   const ai = aiClient(user.client);
   const answer = await judgeHealth(
     { image: sharpImageProcessor, vision: ai ? healthVision(ai.provider, ai.options) : null },
@@ -195,6 +218,8 @@ export async function handleHealthJudge(request: Request): Promise<Response> {
       photos: form.photos,
       input: input.input,
       speciesName: await speciesOf(user.client, input.input.potId),
+      // ADR-0006 D6 on the server: only an 'unclear' result for these same photos (PR #23 review P2).
+      result: secret ? readHealthToken(secret, form.token, user.userId) : null,
     },
   );
   return json(answer, JUDGE_STATUS[answer.kind]);

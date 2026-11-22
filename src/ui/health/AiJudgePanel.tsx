@@ -11,6 +11,8 @@ export type AiRecipient = { name: string; model: string };
 export const JUDGE_MESSAGES: Record<string, string> = {
   none: "AI도 사진에서 판단할 만한 징후를 찾지 못했습니다. 증상이 더 잘 보이는 사진으로 다시 점검해 보세요.",
   consent_required: "AI에 사진을 보내는 데 동의해야 물어볼 수 있습니다.",
+  stale: "점검한 지 30분이 지나 AI에게 물어볼 수 없습니다. [다시 점검]으로 다시 분석해 주세요.",
+  not_allowed: "이 결과로는 AI에게 사진을 보낼 수 없습니다. [다시 점검]으로 다시 분석해 주세요.",
   quota: "오늘은 AI 판단을 더 이상 이용할 수 없습니다. 내일 다시 시도해 주세요.",
   unavailable: "지금은 AI에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   failed: "AI 답을 받지 못했습니다. 다시 시도해 주세요.",
@@ -81,10 +83,13 @@ function Judgement({ judgement }: { judgement: AiJudgement }) {
 export function AiJudgePanel({
   photos,
   input,
+  token,
   recipient,
 }: {
   photos: Blob[];
   input: HealthInput;
+  /** The signed '판단 어려움' result for these photos; the server checks it (ADR-0006 D6). */
+  token: string;
   recipient: AiRecipient;
 }) {
   const [consent, setConsent] = useState(false);
@@ -96,7 +101,7 @@ export function AiJudgePanel({
     if (!consent || asking || photos.length === 0) return;
     setAsking(true);
     setMessage(null);
-    const answer = await requestAiJudgement(photos, consent, input);
+    const answer = await requestAiJudgement(photos, consent, input, token);
     setAsking(false);
     setConsent(false);
     if (answer.kind === "ok") {
