@@ -26,7 +26,8 @@ import { requestSupabase } from "./request-supabase";
 /** Room for the multipart envelope around the photos. Stays under Vercel's 4.5 MB. */
 export const IDENTIFY_BODY_MAX = PHOTO_RULES.maxRequestBytes + 64 * 1024;
 
-async function signedIn() {
+/** The signed-in user and their Supabase client, or null. */
+export async function signedIn() {
   const supabase = await requestSupabase();
   if (!supabase) return null;
   const userId = await supabaseAuthGateway(supabase.client).getUserId();

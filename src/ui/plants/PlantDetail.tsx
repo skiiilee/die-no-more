@@ -86,6 +86,11 @@ export function PlantDetail({
         </Link>
       </div>
       {pot.nickname ? <p className={styles.lead}>{plantName(pot)}</p> : null}
+      <div className={styles.actions}>
+        <Link href={`/health?pot=${pot.id}`} className={styles.secondary}>
+          건강 점검
+        </Link>
+      </div>
 
       <div className={styles.columns}>
         <PotPhotoPanel potId={pot.id} name={potDisplayName(pot)} photo={pot.photo} registrationPhotoFailed={photoFailed} />
