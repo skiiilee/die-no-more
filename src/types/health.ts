@@ -35,10 +35,13 @@ export const HEALTH_LIMITS = {
 } as const;
 
 /**
- * Pl@ntNet scores below this are not shown as a possible cause. Provisional
- * until the live check with the owner's photos (ADR-0006 D4).
+ * Pl@ntNet scores below this are not shown as a possible cause (ADR-0006 D4).
+ * Owner decision 2026-11-22 after the live check: the best scores on two
+ * Monstera photos were ≈ 0.07, named after another plant's disease ("Leaf spot
+ * of legumes"), which would mislead; such weak results become '판단 어려움'
+ * and lead to the AI photo option. Revisit with the F05 accuracy check.
  */
-export const HEALTH_MIN_SCORE = 0.05;
+export const HEALTH_MIN_SCORE = 0.1;
 
 /** What the user told us on S07-A, besides the photos. */
 export type HealthInput = {

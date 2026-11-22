@@ -2,7 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import type { HttpResult, ProviderPostClient } from "./http";
 import { parseDiseases, plantnetHealth } from "./plantnet-health";
 
-/** Documented shape (my.plantnet.org/doc/api/diseases); replaced by the live answer after the live check. */
+/** Live answer (2026-11-22, Monstera with yellow-ringed spots), trimmed to the fields we read. */
+const LIVE = {
+  query: { images: ["049a1c98"], organs: ["auto"], includeRelatedImages: false, noReject: false },
+  language: "en",
+  version: "2026-03-20 (7.5)",
+  remainingIdentificationRequests: 499,
+  results: [
+    { name: "ZZXXZZ", score: 0.06952, description: "Unknown parasitic pathogen" },
+    { name: "LPHLTR", score: 0.06764, description: "Leptosphaerulina trifolii - Leaf spot of legumes" },
+    { name: "MYCOFI", score: 0.01567, description: "Pseudocercospora fijiensis - Black leaf streak of banana" },
+    { name: "1COCCF", score: 0.06821, description: "Coccidae" },
+  ],
+};
+
+/** Documented shape (my.plantnet.org/doc/api/diseases), with higher scores than seen live. */
 const DOCUMENTED = {
   results: [
     { name: "PHYTIN", score: 0.41, description: "Phytophthora infestans" },
@@ -25,6 +39,15 @@ const response = (status: number, body: unknown): HttpResult => ({
 });
 
 describe("parseDiseases", () => {
+  it("reads the live answer: weak results (≈ 0.07) and 'Unknown parasitic pathogen' are not causes", () => {
+    expect(parseDiseases(LIVE)).toEqual([]);
+    const stronger = { results: LIVE.results.map((result) => ({ ...result, score: result.score * 2 })) };
+    expect(parseDiseases(stronger)).toEqual([
+      { code: "1COCCF", name: "Coccidae", score: 0.13642 },
+      { code: "LPHLTR", name: "Leptosphaerulina trifolii - Leaf spot of legumes", score: 0.13528 },
+    ]);
+  });
+
   it("keeps the best three possible causes at or above the score bar, best first", () => {
     expect(parseDiseases(DOCUMENTED)).toEqual([
       { code: "PHYTIN", name: "Phytophthora infestans", score: 0.41 },

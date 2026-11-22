@@ -9,7 +9,9 @@ import { jsonBody, record, text, type HttpCall, type ProviderPostClient } from "
  *
  * - POST /v2/diseases/identify with 1–5 `images`, one `organs` value each.
  * - 200: `results[]` with `name` (EPPO code), `score` and `description`
- *   (an English label; Korean is not offered, live check 2026-11-13).
+ *   (an English label such as "Leptosphaerulina trifolii - Leaf spot of
+ *   legumes"; Korean is not offered). Live check 2026-11-22: shape as
+ *   documented, scores low (best ≈ 0.07 on two Monstera photos).
  * - 404: nothing recognised. A normal answer ('판단 어려움').
  * - 429: daily quota.
  * A 200 whose body is not the expected shape is a failure, never "nothing found".
@@ -21,6 +23,11 @@ const ASK_RESULTS = 10;
 /** EPPO codes are short upper-case codes such as "PHYTIN" or "1BOTRG". */
 const CODE = /^[0-9A-Z]{3,10}$/;
 const MAX_NAME = 120;
+/**
+ * Pl@ntNet's "Unknown parasitic pathogen" (live check 2026-11-22). It names
+ * no cause, so it is never shown as one.
+ */
+const NOT_A_CAUSE = new Set(["ZZXXZZ"]);
 
 export type DiagnoseResult =
   | { kind: "ok"; candidates: HealthCandidate[] }
@@ -44,7 +51,7 @@ export function parseDiseases(body: unknown): HealthCandidate[] | null {
     const code = text(result?.name);
     const name = text(result?.description);
     const score = result?.score;
-    if (!code || !CODE.test(code) || typeof score !== "number" || !Number.isFinite(score)) continue;
+    if (!code || !CODE.test(code) || NOT_A_CAUSE.has(code) || typeof score !== "number" || !Number.isFinite(score)) continue;
     if (score < HEALTH_MIN_SCORE || candidates.some((candidate) => candidate.code === code)) continue;
     candidates.push({ code, name: name && name.length <= MAX_NAME ? name : code, score });
   }
