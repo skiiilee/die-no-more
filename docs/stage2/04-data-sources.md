@@ -15,11 +15,12 @@
 | 한국어 이름 표시 | F02–F04, S04, S06 | 제공자 한국어 이름(Trefle `common_names.ko` 등) → 없으면 Azure Translator F0 | 식물DB의 한국어 이름을 표시하고, 식물DB 검색에 씀. 없으면 번역해 식물DB에 저장. 학명 매칭에는 쓰지 않음. 검색 재시도 시 한국어 입력을 영문으로 바꾸는 데도 씀 ([ADR-0004](../decisions/ADR-0004-translation-and-quota.md)) |
 | 건강 점검 설명 번역 | F05, S07 | Azure Translator F0 | Pl@ntNet 병해 설명(영어)을 한국어로 표시. 원문·EPPO 코드와 함께 저장. 번역이 없으면 영어 원문 표시 |
 | 식물 설명 번역 | F10, S04 | Azure Translator F0 | Perenual 짧은 식물 설명(영어)을 한국어로 표시. 원문과 따로 저장. 번역이 없으면 영어 원문 표시 (사용자 결정 2026-11-15) |
+| AI 관리 정보 보완·건강 점검 설명 | F10, S04-B, F05, S07-B | Google Gemini 무료 등급 (OpenAI 호환 엔드포인트) | Perenual이 비운 관리 정보 항목 보완([ADR-0005](../decisions/ADR-0005-ai-care-reference.md)), S07-B 원인 설명([ADR-0006](../decisions/ADR-0006-health-check-ai-explanation.md) D1–D3). 'AI 생성'으로 표시. '판단 어려움'일 때만 요청마다 동의한 경우 사진 전송(ADR-0006 D6) |
 
 ## 데이터 연결 기준
 
 - 후보는 **학명**을 기준으로 합치고 중복을 없앱니다. 별도 API는 쓰지 않고 앱 내부에서 처리합니다.
-- 관리 정보는 학명으로 Perenual을 조회합니다. 값이 없으면 "정보 없음"으로 표시합니다. 값을 새로 만들지 않습니다.
+- 관리 정보는 학명으로 Perenual을 조회합니다. 값이 없으면 "정보 없음"으로 표시합니다. 값을 새로 만들지 않습니다. 예외: Perenual이 비운 항목은 AI로 보완할 수 있으며, 'AI 생성'으로 표시합니다([ADR-0005](../decisions/ADR-0005-ai-care-reference.md) D1·D2).
 - 관리 정보 값은 Perenual 응답을 사용하고, 항목마다 출처(Perenual)와 조회 날짜를 기록합니다.
 - 이름 검색 순서: ① 식물DB에서 찾기(한국어 이름, 영문명, 학명) → ② 없으면 입력 그대로 Perenual·Trefle 조회 → ③ 결과가 없고 입력이 한국어면 영문으로 번역해 Perenual·Trefle 재조회 → ④ 그래도 없으면 직접 입력. 사용자는 한 번만 입력하며, 이 순서는 코드가 자동으로 실행한다.
 - 식물DB와 사용자 화분DB는 분리합니다. 식물DB에는 학명 기준의 종 정보, 영문 일반명, 한국어 이름, 출처 API, 조회 날짜를 저장합니다. 화분DB에는 사용자가 등록한 화분과 기록을 저장합니다.
@@ -36,3 +37,4 @@
 
 - Perenual, Trefle, Pl@ntNet은 모두 서버에서 호출합니다. API 키는 서버 환경변수에만 둡니다(`docs/03-architecture.md`).
 - Azure Translator도 서버에서 호출합니다. 키와 리전은 서버 환경변수에만 둡니다. Google Cloud Translation은 쓰지 않습니다(ADR-0004 D1).
+- AI 엔드포인트(OpenAI 호환, 현재 Gemini)도 서버에서만 호출합니다. 키·주소·모델은 서버 환경변수에만 둡니다(ADR-0005 D1, ADR-0006 D2).

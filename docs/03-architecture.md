@@ -8,7 +8,7 @@ Server: Next.js route handlers and services. Supabase Auth, PostgreSQL with RLS,
 - `identification`: provider adapter, normalized candidates, user confirmation.
 - `health`: provider adapter, normalized symptoms and hypotheses.
 - `species`: source-backed reference data, licensed cache.
-- `recommendation`: deterministic safety/care rules with source display. No LLM in MVP (ADR-0003 D3).
+- `recommendation`: deterministic safety/care rules with source display. No LLM for recommendations (ADR-0003 D3); other MVP LLM use is in ADR-0005 and ADR-0006.
 - `tasks`: schedule, completion, deferral, log transaction.
 
 External provider calls must occur server-side. Long-running calls should use job states `queued / processing / completed / failed` and may later move to a worker queue.
