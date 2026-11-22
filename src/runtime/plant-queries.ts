@@ -3,7 +3,7 @@ import { FEATURES } from "@/config/features";
 import { loadRegistrationContext, type RegistrationContext } from "@/service/plant-service";
 import type { RawInput } from "@/service/plant-registration";
 import { withNewestPhotos } from "@/service/pot-photos";
-import type { PotView } from "@/types/plant";
+import { potDisplayName, type PotView } from "@/types/plant";
 import { requestPlantStore, requestPotStores } from "./plant-store";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,4 +34,11 @@ export async function listActivePots(): Promise<PotView[]> {
   const stores = await requestPotStores();
   if (!stores) throw new Error("Supabase is not configured");
   return withNewestPhotos(stores.photos, await stores.plants.listActivePots());
+}
+
+/** S07-A 대상 화분 choices: the user's active pots by display name. No photo links are made. */
+export async function listPotChoices(): Promise<{ id: string; name: string }[]> {
+  const store = await requestPlantStore();
+  if (!store) throw new Error("Supabase is not configured");
+  return (await store.listActivePots()).map((pot) => ({ id: pot.id, name: potDisplayName(pot) }));
 }
