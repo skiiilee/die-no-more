@@ -53,7 +53,7 @@ describe("S07-B '판단 어려움' → AI photo reading (ADR-0006 D6)", () => {
     expect(screen.queryByRole("button", { name: "AI에게 사진으로 물어보기" })).toBeNull();
   });
 
-  it("sends the same photos with consent, then shows the AI's signs and causes as marked guesses", async () => {
+  it("sends the same photos with consent, then shows the AI's signs and causes, noted once at the bottom", async () => {
     judge.mockResolvedValueOnce({
       kind: "ok",
       judgement: {
@@ -70,8 +70,11 @@ describe("S07-B '판단 어려움' → AI photo reading (ADR-0006 D6)", () => {
     expect(judge).toHaveBeenCalledWith(PHOTOS, true, INPUT, "unclear-result");
     expect(screen.getByRole("heading", { name: "AI의 사진 판단 (참고)" })).toBeTruthy();
     expect(screen.getByRole("list", { name: "AI가 본 가능한 원인" }).textContent).toContain("건조 가능성");
-    expect(screen.getAllByText("AI 생성")).toHaveLength(3);
-    expect(screen.getByText(/확정 진단이 아니고 사실 확인을 거치지 않았으며 틀릴 수/)).toBeTruthy();
+    expect(screen.queryByText("AI 생성")).toBeNull();
+    const note = screen.getByRole("note", { name: "AI 생성 안내" });
+    expect(note.textContent).toContain("AI의 사진 판단");
+    expect(note.textContent).toContain("AI(gemini-3.5-flash-lite)가 쓴 참고 내용");
+    expect(note.textContent).toContain("틀릴 수 있습니다");
   });
 
   it("tells the user to check again when the server refuses an old or unrelated result", async () => {
