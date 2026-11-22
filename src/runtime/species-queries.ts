@@ -10,7 +10,7 @@ import { notConnectedTranslator } from "@/service/adapters/translator";
 import { usageGate } from "@/service/provider-usage";
 import { loadAiCareFill, loadSpeciesPreview } from "@/service/species-preview";
 import { searchSpecies } from "@/service/species-search";
-import type { SearchOutcome, SpeciesCare, SpeciesPreview } from "@/types/species";
+import type { PotCare, SearchOutcome, SpeciesCare, SpeciesPreview } from "@/types/species";
 import { requestSupabase } from "./request-supabase";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -96,5 +96,26 @@ export async function getAiCareFill(preview: SpeciesPreview): Promise<SpeciesCar
   } catch (error) {
     console.error("care AI fill failed", error instanceof Error ? error.name : "unknown");
     return preview.care;
+  }
+}
+
+/**
+ * S06 종별 관리 참고 for a pot's species (F10). Reuses the species row: when
+ * S04-B already asked the providers, no call is made. A species never asked
+ * yet is asked here, as S04-B would. A failure shows '지금 불러오지 못함', never
+ * an error screen: S06 must stay usable without care data.
+ */
+export async function getPotCare(speciesId: string): Promise<PotCare> {
+  try {
+    const preview = await getSpeciesPreview(speciesId);
+    if (!preview) return { care: { status: "none" }, aiFill: [], aiCare: null };
+    return {
+      care: preview.care,
+      aiFill: preview.aiFill,
+      aiCare: preview.aiFill.length > 0 ? getAiCareFill(preview) : null,
+    };
+  } catch (error) {
+    console.error("pot care lookup failed", error instanceof Error ? error.name : "unknown");
+    return { care: { status: "pending" }, aiFill: [], aiCare: null };
   }
 }
