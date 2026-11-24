@@ -7,7 +7,7 @@ Candidate providers (documentation checked 2026-11-12, see "Provider check" belo
 - Azure Translator (F0, free): Korean text when no provider gives Korean, saved and reused ([ADR-0004](decisions/ADR-0004-translation-and-quota.md)). Connected last; until then the app uses the ADR-0004 D3 fallbacks.
 - Google Cloud Translation: not adopted (requires a visible Google attribution badge; ADR-0004 D1). Checked on 2026-11-12/13; records below are kept as history.
 - Kindwise plant.health: not adopted.
-- OpenAI and other LLMs: not adopted in MVP ([ADR-0003](decisions/ADR-0003-implementation-decisions.md) D3).
+- OpenAI-compatible LLM endpoint (currently Google Gemini free tier, `gemini-3.5-flash-lite`): care-reference supplement ([ADR-0005](decisions/ADR-0005-ai-care-reference.md)) and S07-B health explanation and photo judgment ([ADR-0006](decisions/ADR-0006-health-check-ai-explanation.md)). Recommendation explanation stays out of MVP ([ADR-0003](decisions/ADR-0003-implementation-decisions.md) D3).
 
 Never send API secrets to browser. Normalize provider responses and preserve provider/model/version provenance. Scores are not necessarily calibrated probabilities.
 

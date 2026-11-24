@@ -12,7 +12,7 @@ Input: photo(s), plant species if confirmed, optional user observations. Output:
 Each physical plant has an independent ID, nickname, location, indoor/outdoor environment, status and chronological photo history. Allow duplicate species across different plants, editing and archiving.
 
 ## Care logging and recommendations
-Log watering, fertilizing, repotting, pruning and free-form observations with actual event timestamps. Combine source-backed species reference, observations and history through deterministic rules. No LLM explanation layer in MVP (ADR-0003 D3). For watering, prefer soil-check tasks rather than fixed automatic watering directives.
+Log watering, fertilizing, repotting, pruning and free-form observations with actual event timestamps. Combine source-backed species reference, observations and history through deterministic rules. No LLM explanation layer for recommendations (ADR-0003 D3); LLM use is limited to the care-reference supplement (ADR-0005) and the S07-B health explanation (ADR-0006). For watering, prefer soil-check tasks rather than fixed automatic watering directives.
 
 ## Tasks and notifications
 Support pending, due, completed, snoozed, skipped and cancelled. Completion writes an associated care log only when actual action was performed, atomically without duplicates. In-app notifications are P0; push is P1.
