@@ -113,7 +113,7 @@ describe("S07-B 건강 결과 (03 §4 result structure, ADR-0006)", () => {
     expect(screen.getByText(/사진만으로 원인을 확정할 수 없습니다/)).toBeTruthy();
   });
 
-  it("asks the AI after showing the result, then adds its texts with the 'AI 생성' mark", async () => {
+  it("asks the AI after showing the result, then shows its texts in one card with a single 'AI 생성' note", async () => {
     let resolve: (answer: ExplainAnswer) => void = () => {};
     explain.mockImplementationOnce(() => new Promise<ExplainAnswer>((done) => (resolve = done)));
     await openWithPhoto();
@@ -135,8 +135,13 @@ describe("S07-B 건강 결과 (03 §4 result structure, ADR-0006)", () => {
     );
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByText(/습할 때 생기는 곰팡이일 가능성/)).toBeTruthy();
-    expect(screen.getAllByText("AI 생성")).toHaveLength(3);
-    expect(screen.getByText(/AI\(model-x\)가 위 결과와 고른 증상만 보고/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "AI 참고 설명" })).toBeTruthy();
+    expect(screen.getByRole("list", { name: "AI가 덧붙인 확인과 행동" }).textContent).toContain("통풍이 되는지 보기");
+    // No label on every line (owner decision 2026-11-22): one note at the bottom.
+    expect(screen.queryByText("AI 생성")).toBeNull();
+    const note = screen.getByRole("note", { name: "AI 생성 안내" });
+    expect(note.textContent).toContain("AI(model-x)가 쓴 참고 내용");
+    expect(note.parentElement?.lastElementChild).toBe(note);
   });
 
   it("keeps the fixed parts and says so when the AI explanation is not available", async () => {
@@ -144,7 +149,8 @@ describe("S07-B 건강 결과 (03 §4 result structure, ADR-0006)", () => {
     await openWithPhoto();
     await analyze();
     expect(await screen.findByText("AI 설명은 지금 만들지 못해 기본 확인 항목만 보여 줍니다.")).toBeTruthy();
-    expect(screen.queryByText("AI 생성")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "AI 참고 설명" })).toBeNull();
+    expect(screen.queryByRole("note", { name: "AI 생성 안내" })).toBeNull();
     expect(screen.getByText(/흙 상태를 손가락으로/)).toBeTruthy();
   });
 

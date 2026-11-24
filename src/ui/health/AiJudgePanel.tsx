@@ -20,10 +20,6 @@ export const JUDGE_MESSAGES: Record<string, string> = {
   network: "연결이 끊겼습니다. 인터넷 연결을 확인하고 다시 시도해 주세요.",
 };
 
-function AiMark() {
-  return <span className={styles.aiMark}>AI 생성</span>;
-}
-
 function Judgement({ judgement }: { judgement: AiJudgement }) {
   return (
     <>
@@ -32,9 +28,7 @@ function Judgement({ judgement }: { judgement: AiJudgement }) {
           <h3 className={styles.cardTitle}>AI가 사진에서 본 징후</h3>
           <ul className={styles.list}>
             {judgement.signs.map((sign) => (
-              <li key={sign}>
-                {sign} <AiMark />
-              </li>
+              <li key={sign}>{sign}</li>
             ))}
           </ul>
         </>
@@ -45,7 +39,7 @@ function Judgement({ judgement }: { judgement: AiJudgement }) {
           {judgement.causes.map((cause, index) => (
             <li key={cause.name}>
               <p>
-                <span className={styles.rank}>후보 {index + 1}</span> {cause.name} 가능성 <AiMark />
+                <span className={styles.rank}>후보 {index + 1}</span> {cause.name} 가능성
               </p>
               <p className={styles.note}>{cause.reason}</p>
             </li>
@@ -59,17 +53,11 @@ function Judgement({ judgement }: { judgement: AiJudgement }) {
           <h3 className={styles.cardTitle}>AI가 덧붙인 확인·행동</h3>
           <ul className={styles.list}>
             {[...judgement.checks, ...judgement.actions].map((item) => (
-              <li key={item}>
-                {item} <AiMark />
-              </li>
+              <li key={item}>{item}</li>
             ))}
           </ul>
         </>
       ) : null}
-      <p className={styles.note}>
-        AI({judgement.model})가 사진만 보고 추정한 내용입니다. 확정 진단이 아니고 사실 확인을 거치지 않았으며 틀릴 수
-        있습니다. 위의 기본 확인 항목을 먼저 확인해 주세요.
-      </p>
     </>
   );
 }
