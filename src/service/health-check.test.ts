@@ -21,7 +21,7 @@ const USER = "00000000-0000-0000-0000-00000000000a";
 
 /** A token as the server signs it, read back as the handlers do. */
 function result(kind: "ok" | "unclear", candidates: HealthCandidate[], photos: Uint8Array[]): HealthTokenPayload {
-  return readHealthToken(SECRET, signHealthToken(SECRET, { userId: USER, kind, candidates, photos }), USER)!;
+  return readHealthToken(SECRET, signHealthToken(SECRET, { userId: USER, kind, candidates, photos, analyzedAt: NOW.toISOString() }), USER)!;
 }
 
 function plantnet(answer: DiagnoseResult) {
@@ -64,7 +64,7 @@ describe("checkHealth (03 §4 F05, ADR-0003 D5)", () => {
       token: "token:ok:2",
     });
     expect(d.plantnet!.diagnose).toHaveBeenCalledWith([CLEAN1]);
-    expect(d.sign).toHaveBeenCalledWith({ kind: "ok", candidates: CAUSES });
+    expect(d.sign).toHaveBeenCalledWith({ kind: "ok", candidates: CAUSES, analyzedAt: NOW.toISOString() });
   });
 
   it("says '판단 어려움' when nothing passed, signed as unclear", async () => {
@@ -113,7 +113,7 @@ describe("explainHealth (ADR-0006, PR #23 review P2)", () => {
 
   it("explains only the causes in the signed result, with Korean labels and the species; never notes", async () => {
     const adapter = ai({ kind: "none" });
-    await explainHealth(adapter, { result: result("ok", CAUSES, [P1]), input: INPUT, speciesName: "Ficus elastica" });
+    await explainHealth(adapter, { result: result("ok", CAUSES, [P1]), input: INPUT, speciesName: "Ficus elastica", sign: () => "signed" });
     expect(adapter.explain).toHaveBeenCalledWith({
       candidates: CAUSES,
       symptoms: ["반점"],
@@ -124,7 +124,7 @@ describe("explainHealth (ADR-0006, PR #23 review P2)", () => {
 
   it("asks nothing without a valid 'ok' result (missing, tampered, other user, expired, unclear)", async () => {
     const adapter = ai({ kind: "none" });
-    const token = signHealthToken(SECRET, { userId: USER, kind: "ok", candidates: CAUSES, photos: [P1] }, NOW.getTime());
+    const token = signHealthToken(SECRET, { userId: USER, kind: "ok", candidates: CAUSES, photos: [P1], analyzedAt: NOW.toISOString() }, NOW.getTime());
     const [body, mac] = token.split(".");
     const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, "base64url").toString()), c: [{ code: "FAKEXX", name: "anything", score: 1 }] })).toString("base64url");
     for (const bad of [
@@ -135,13 +135,26 @@ describe("explainHealth (ADR-0006, PR #23 review P2)", () => {
       readHealthToken("another-secret", token, USER, NOW.getTime()),
       result("unclear", [], [P1]),
     ]) {
-      expect(await explainHealth(adapter, { result: bad, input: INPUT, speciesName: null })).toEqual({ kind: "unavailable" });
+      expect(await explainHealth(adapter, { result: bad, input: INPUT, speciesName: null, sign: () => "signed" })).toEqual({ kind: "unavailable" });
     }
     expect(adapter.explain).not.toHaveBeenCalled();
   });
 
+  it("signs the explanation it got, so S07-S can save it", async () => {
+    const explanation = { causes: [], checks: ["통풍 확인"], actions: [], model: "model-x" };
+    const sign = vi.fn(() => "signed-explanation");
+    const answer = await explainHealth(ai({ kind: "ok", explanation }), {
+      result: result("ok", CAUSES, [P1]),
+      input: INPUT,
+      speciesName: null,
+      sign,
+    });
+    expect(answer).toEqual({ kind: "ok", explanation, token: "signed-explanation" });
+    expect(sign).toHaveBeenCalledWith(explanation);
+  });
+
   it("leaves only the fixed checks when the AI is off, empty, over its limit or failing", async () => {
-    const request = { result: result("ok", CAUSES, [P1]), input: INPUT, speciesName: null };
+    const request = { result: result("ok", CAUSES, [P1]), input: INPUT, speciesName: null, sign: () => "signed" };
     expect(await explainHealth(null, request)).toEqual({ kind: "unavailable" });
     expect(await explainHealth(ai({ kind: "none" }), request)).toEqual({ kind: "none" });
     expect(await explainHealth(ai({ kind: "quota" }), request)).toEqual({ kind: "unavailable" });
@@ -170,7 +183,7 @@ describe("judgeHealth (ADR-0006 D6, PR #23 review P2)", () => {
     options: { consent?: boolean; photos?: Uint8Array[]; image?: ReturnType<typeof fakeImageProcessor>; result?: HealthTokenPayload | null } = {},
   ) =>
     judgeHealth(
-      { image: options.image ?? fakeImageProcessor(), vision: v },
+      { image: options.image ?? fakeImageProcessor(), vision: v, sign: () => "signed-judgement" },
       {
         consent: options.consent ?? true,
         photos: options.photos ?? [P1],
@@ -202,6 +215,11 @@ describe("judgeHealth (ADR-0006 D6, PR #23 review P2)", () => {
     expect(await judge(v)).toEqual({ kind: "none" });
     expect(v.judge).toHaveBeenCalledWith({ photos: [CLEAN1], symptoms: ["잎 갈변"], noticed: "오늘", speciesName: "Ficus elastica" });
     expect(JSON.stringify(v.judge.mock.calls[0][0])).not.toContain("연락처");
+  });
+
+  it("signs the reading it got, so S07-S can save it", async () => {
+    const judgement = { signs: ["잎 끝 갈변"], causes: [], checks: [], actions: [], model: "m" };
+    expect(await judge(vision({ kind: "ok", judgement }))).toEqual({ kind: "ok", judgement, token: "signed-judgement" });
   });
 
   it("needs 1–5 readable photos and a configured AI", async () => {

@@ -73,12 +73,15 @@ export function AiJudgePanel({
   input,
   token,
   recipient,
+  onJudged,
 }: {
   photos: Blob[];
   input: HealthInput;
   /** The signed '판단 어려움' result for these photos; the server checks it (ADR-0006 D6). */
   token: string;
   recipient: AiRecipient;
+  /** Gets the signed reading, so S07-S can save it with the result. */
+  onJudged?: (token: string) => void;
 }) {
   const [consent, setConsent] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -94,6 +97,7 @@ export function AiJudgePanel({
     setConsent(false);
     if (answer.kind === "ok") {
       setJudgement(answer.judgement);
+      onJudged?.(answer.token);
       return;
     }
     setMessage(answer.kind === "invalid" ? answer.message : (JUDGE_MESSAGES[answer.kind] ?? JUDGE_MESSAGES.failed));

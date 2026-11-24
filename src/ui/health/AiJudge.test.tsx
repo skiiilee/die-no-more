@@ -6,6 +6,7 @@ import { JUDGE_MESSAGES } from "./AiJudgePanel";
 import { HealthResult } from "./HealthResult";
 
 const { judge, explain } = vi.hoisted(() => ({ judge: vi.fn(), explain: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("./health-client", () => ({ requestAiJudgement: judge, requestExplanation: explain }));
 
 const UNCLEAR: HealthAnswer = { kind: "unclear", analyzedAt: "2026-11-22T06:00:00Z", speciesName: null, token: "unclear-result" };
@@ -63,6 +64,7 @@ describe("S07-B '판단 어려움' → AI photo reading (ADR-0006 D6)", () => {
         actions: [],
         model: "gemini-3.5-flash-lite",
       },
+      token: "signed-judgement",
     } satisfies JudgeAnswer);
     renderUnclear();
     fireEvent.click(consentBox());

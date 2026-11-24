@@ -10,9 +10,10 @@ import { useUnsavedChanges } from "@/ui/shell/unsaved-changes";
 import type { AiRecipient } from "./AiJudgePanel";
 import { requestHealthCheck } from "./health-client";
 import { HealthResult } from "./HealthResult";
+import type { HealthPot } from "./HealthSaveCard";
 import { usePhotoList } from "./use-photo-list";
 
-export type HealthPot = { id: string; name: string };
+export type { HealthPot } from "./HealthSaveCard";
 
 export const HEALTH_MESSAGES: Record<string, string> = {
   consent_required: "Pl@ntNet 사진 전송에 동의해야 분석할 수 있습니다.",
@@ -89,6 +90,7 @@ export function HealthCheckScreen({
         input={shown.input}
         photos={shown.photos}
         aiRecipient={aiRecipient}
+        pots={pots}
         onAgain={() => setShown(null)}
       />
     );

@@ -3,7 +3,9 @@ import {
   NOTICED,
   SYMPTOMS,
   type ExplainAnswer,
+  type AiJudgement,
   type HealthAnswer,
+  type HealthExplanation,
   type HealthCandidate,
   type HealthInput,
   type JudgeAnswer,
@@ -38,7 +40,7 @@ export type HealthDeps = {
   image: ImageProcessor;
   plantnet: PlantnetHealthAdapter | null;
   /** Signs what Pl@ntNet answered for this user and these photos (health-token.ts). */
-  sign: (result: { kind: "ok" | "unclear"; candidates: HealthCandidate[] }) => string;
+  sign: (result: { kind: "ok" | "unclear"; candidates: HealthCandidate[]; analyzedAt: string }) => string;
   now?: () => Date;
 };
 
@@ -91,11 +93,11 @@ export async function checkHealth(
   const analyzedAt = (deps.now?.() ?? new Date()).toISOString();
   switch (result.kind) {
     case "ok": {
-      const token = deps.sign({ kind: "ok", candidates: result.candidates });
+      const token = deps.sign({ kind: "ok", candidates: result.candidates, analyzedAt });
       return { kind: "ok", candidates: result.candidates, analyzedAt, speciesName: request.speciesName, token };
     }
     case "none":
-      return { kind: "unclear", analyzedAt, speciesName: request.speciesName, token: deps.sign({ kind: "unclear", candidates: [] }) };
+      return { kind: "unclear", analyzedAt, speciesName: request.speciesName, token: deps.sign({ kind: "unclear", candidates: [], analyzedAt }) };
     default:
       return { kind: result.kind };
   }
@@ -111,7 +113,13 @@ const label = (options: readonly { code: string; label: string }[], code: string
  */
 export async function explainHealth(
   ai: HealthAiAdapter | null,
-  request: { result: HealthTokenPayload | null; input: HealthInput; speciesName: string | null },
+  request: {
+    result: HealthTokenPayload | null;
+    input: HealthInput;
+    speciesName: string | null;
+    /** Signs the explanation the server received, so S07-S can save it. */
+    sign: (explanation: HealthExplanation) => string;
+  },
 ): Promise<ExplainAnswer> {
   const result = request.result;
   if (!result || result.k !== "ok" || result.c.length === 0) return { kind: "unavailable" };
@@ -122,7 +130,7 @@ export async function explainHealth(
     noticed: label(NOTICED, request.input.noticed),
     speciesName: request.speciesName,
   });
-  if (answer.kind === "ok") return answer;
+  if (answer.kind === "ok") return { ...answer, token: request.sign(answer.explanation) };
   return answer.kind === "none" ? { kind: "none" } : { kind: "unavailable" };
 }
 
@@ -134,7 +142,12 @@ export async function explainHealth(
  * removed) first; notes are never sent.
  */
 export async function judgeHealth(
-  deps: { image: HealthDeps["image"]; vision: HealthVisionAdapter | null },
+  deps: {
+    image: HealthDeps["image"];
+    vision: HealthVisionAdapter | null;
+    /** Signs the reading the server received, so S07-S can save it. */
+    sign: (judgement: AiJudgement) => string;
+  },
   request: {
     consent: boolean;
     photos: Uint8Array[];
@@ -158,5 +171,5 @@ export async function judgeHealth(
     noticed: label(NOTICED, request.input.noticed),
     speciesName: request.speciesName,
   });
-  return answer;
+  return answer.kind === "ok" ? { ...answer, token: deps.sign(answer.judgement) } : answer;
 }

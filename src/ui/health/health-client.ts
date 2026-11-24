@@ -1,4 +1,4 @@
-import type { ExplainAnswer, HealthAnswer, HealthInput, JudgeAnswer } from "@/types/health";
+import type { ExplainAnswer, HealthAnswer, HealthInput, JudgeAnswer, SaveAnswer } from "@/types/health";
 
 /**
  * Browser calls for S07. Network errors and unexpected answers become plain
@@ -81,6 +81,40 @@ export async function requestAiJudgement(
   if (response.status === 401) return { kind: "signed_out" };
   try {
     const body = (await response.json()) as JudgeAnswer;
+    return typeof body?.kind === "string" ? body : { kind: "failed" };
+  } catch {
+    return { kind: "failed" };
+  }
+}
+
+/**
+ * S07-S [이 화분에 결과 저장]: the signed result and the same photos, the
+ * S07-A fields with the chosen pot, and the signed AI texts if any. The
+ * server stores only what it signed.
+ */
+export async function requestSave(
+  photos: Blob[],
+  input: HealthInput & { potId: string },
+  tokens: { result: string; explanation: string | null; judgement: string | null },
+): Promise<SaveAnswer | HealthClientFailure> {
+  const form = new FormData();
+  form.append("token", tokens.result);
+  if (tokens.explanation) form.append("explainToken", tokens.explanation);
+  if (tokens.judgement) form.append("judgeToken", tokens.judgement);
+  for (const symptom of input.symptoms) form.append("symptoms", symptom);
+  form.append("noticed", input.noticed);
+  form.append("notes", input.notes);
+  form.append("potId", input.potId);
+  photos.forEach((photo, index) => form.append("photos", photo, `photo-${index + 1}.jpg`));
+  let response: Response;
+  try {
+    response = await fetch("/api/health-checks/save", { method: "POST", body: form });
+  } catch {
+    return { kind: "network" };
+  }
+  if (response.status === 401) return { kind: "signed_out" };
+  try {
+    const body = (await response.json()) as SaveAnswer;
     return typeof body?.kind === "string" ? body : { kind: "failed" };
   } catch {
     return { kind: "failed" };

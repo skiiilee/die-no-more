@@ -84,7 +84,11 @@ export type HealthExplanation = {
 };
 
 /** POST /api/health-checks/explain answer. Anything but ok leaves S07-B with the fixed checks only. */
-export type ExplainAnswer = { kind: "ok"; explanation: HealthExplanation } | { kind: "none" } | { kind: "unavailable" };
+export type ExplainAnswer =
+  /** `token`: the server's signature over this explanation, so S07-S can save it. */
+  | { kind: "ok"; explanation: HealthExplanation; token: string }
+  | { kind: "none" }
+  | { kind: "unavailable" };
 
 /** Checks shown for every result: things to look at, never a treatment (wireframe §6 "먼저 확인할 내용"). */
 const BASE_CHECKS = [
@@ -141,7 +145,8 @@ export type AiJudgement = {
  * - not_allowed: the token is not an 'unclear' result for these same photos (ADR-0006 D6).
  */
 export type JudgeAnswer =
-  | { kind: "ok"; judgement: AiJudgement }
+  /** `token`: the server's signature over this reading, so S07-S can save it. */
+  | { kind: "ok"; judgement: AiJudgement; token: string }
   | { kind: "none" }
   | { kind: "invalid"; message: string }
   | { kind: "consent_required" }
@@ -149,3 +154,43 @@ export type JudgeAnswer =
   | { kind: "not_allowed" }
   | { kind: "quota" }
   | { kind: "unavailable" };
+
+/**
+ * POST /api/health-checks/save answer (S07-S).
+ * - saved: stored on the pot; S06 shows it.
+ * - invalid: no pot chosen, or a photo that cannot be used.
+ * - stale: the result token expired (30 minutes) or is missing: check again.
+ * - not_allowed: the photos or AI texts are not the ones the server signed.
+ * - not_found: the pot is not the user's own (or no longer exists).
+ * - failed: storage or the database failed; nothing is left half-saved.
+ */
+export type SaveAnswer =
+  | { kind: "saved"; potId: string; checkId: string }
+  | { kind: "invalid"; message: string }
+  | { kind: "stale" }
+  | { kind: "not_allowed" }
+  | { kind: "not_found" }
+  | { kind: "failed" };
+
+/** A saved check as S06 lists it. */
+export type SavedHealthSummary = {
+  id: string;
+  analyzedAt: string;
+  outcome: "found" | "unclear";
+  /** Name of the first possible cause, when found. */
+  topCause: string | null;
+  /** Whether the AI wrote any part of it. */
+  hasAi: boolean;
+};
+
+/** A saved check as its detail screen shows it. Photo `url`s are short-lived signed links. */
+export type SavedHealthCheck = SavedHealthSummary & {
+  symptoms: SymptomCode[];
+  noticed: NoticedCode;
+  notes: string | null;
+  causes: HealthCandidate[];
+  aiExplanation: Omit<HealthExplanation, "model"> | null;
+  aiJudgement: Omit<AiJudgement, "model"> | null;
+  aiModel: string | null;
+  photos: { id: string; url: string | null }[];
+};

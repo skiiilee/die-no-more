@@ -6,6 +6,7 @@ import { HEALTH_MESSAGES, HealthCheckScreen } from "./HealthCheckScreen";
 
 const { check, explain } = vi.hoisted(() => ({ check: vi.fn(), explain: vi.fn() }));
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("./health-client", () => ({ requestHealthCheck: check, requestExplanation: explain }));
 vi.mock("@/ui/plants/photo-prep", () => ({
   prepareForUpload: vi.fn(async (file: File) => ({ ok: true, blob: new Blob([`small ${file.name}`], { type: "image/jpeg" }) })),
@@ -131,6 +132,7 @@ describe("S07-B 건강 결과 (03 §4 result structure, ADR-0006)", () => {
           actions: ["시든 잎을 모아 두지 않기"],
           model: "model-x",
         },
+        token: "signed-explanation",
       }),
     );
     expect(screen.queryByRole("status")).toBeNull();
