@@ -115,11 +115,12 @@ select throws_ok(
   'B cannot write a user care value in A''s name'
 );
 
--- B's own photo, used below to check that A cannot link it. A care-log photo:
--- health photos always need a pot (20261124100000_health_check_save.sql).
+-- B's own photo, used below to check that A cannot link it. An identification
+-- photo: pot, health and care-record photos always need a pot
+-- (20261119100000, 20261124100000, 20261126100000).
 select lives_ok(
   $$ insert into public.plant_photos (id, storage_path, photo_type)
-     values ('30000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b/b1.jpg', 'log') $$,
+     values ('30000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b/b1.jpg', 'identification') $$,
   'B stores an unattached photo in own folder'
 );
 
