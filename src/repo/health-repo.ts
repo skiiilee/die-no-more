@@ -44,9 +44,27 @@ export type StoredHealthCheck = SavedHealthSummary & {
   photoPaths: { id: string; path: string }[];
 };
 
+export type SavedRef = { checkId: string; potId: string };
+
 export type HealthStore = {
-  /** Stores the check, its photo rows and links in one transaction. Null when the database refused. */
-  save(potId: string, row: HealthCheckRow, photoPaths: string[]): Promise<string | null>;
+  /** The check already saved for this result (by result digest), or null. Throws when the lookup fails. */
+  findByDigest(resultDigest: string): Promise<SavedRef | null>;
+  /**
+   * Records the paths about to be uploaded as 'pending' clean-up under
+   * `requestId` (PR #26 review P2). False when that could not be written.
+   */
+  planCleanup(requestId: string, paths: string[]): Promise<boolean>;
+  /**
+   * Stores the check, its photo rows and links in one transaction and drops
+   * the clean-up record. `created` is false when the same result was saved
+   * before; nothing new is stored then. Null when the database refused.
+   */
+  save(
+    potId: string,
+    row: HealthCheckRow,
+    photoPaths: string[],
+    keys: { resultDigest: string; cleanupRequest: string },
+  ): Promise<(SavedRef & { created: boolean }) | null>;
   /** The newest checks of a pot, newest first. */
   list(potId: string, limit: number): Promise<SavedHealthSummary[]>;
   /** One check of this pot with its photo paths, or null when there is none. */
@@ -121,13 +139,34 @@ const COLUMNS = "id, analyzed_at, outcome, candidate_causes, symptoms, noticed, 
 
 export function supabaseHealthStore(client: SupabaseServerClient): HealthStore {
   return {
-    async save(potId, row, photoPaths) {
+    async findByDigest(resultDigest) {
+      const { data, error } = await client
+        .from("plant_analyses")
+        .select("id, plant_id")
+        .eq("result_digest", resultDigest)
+        .maybeSingle();
+      if (error) throw new PlantStoreError("findHealthCheck", { cause: error });
+      const row = data as { id: string; plant_id: string } | null;
+      return row ? { checkId: row.id, potId: row.plant_id } : null;
+    },
+
+    async planCleanup(requestId, paths) {
+      const { error } = await client
+        .from("storage_deletions")
+        .insert(paths.map((path) => ({ deletion_request_id: requestId, storage_path: path, status: "pending" })));
+      return !error;
+    },
+
+    async save(potId, row, photoPaths, keys) {
       const { data, error } = await client.rpc("save_health_check", {
         p_plant_id: potId,
         p_analysis: row,
         p_photo_paths: photoPaths,
+        p_result_digest: keys.resultDigest,
+        p_cleanup_request: keys.cleanupRequest,
       });
-      return error || typeof data !== "string" ? null : data;
+      const saved = (data as { analysis_id: string; plant_id: string; created: boolean }[] | null)?.[0];
+      return error || !saved ? null : { checkId: saved.analysis_id, potId: saved.plant_id, created: saved.created };
     },
 
     async list(potId, limit) {

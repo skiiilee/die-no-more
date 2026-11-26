@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { HealthInput } from "@/types/health";
 import { fakeImageProcessor } from "../../tests/fakes/photos";
 import { saveHealthCheck, SAVE_MESSAGES, UNCERTAINTY, type HealthSaveDeps, type SignedAi } from "./health-save";
-import { readAiAnswer, readHealthToken, signAiAnswer, signHealthToken, type HealthTokenPayload } from "./health-token";
+import { readAiAnswer, readHealthToken, resultDigest, signAiAnswer, signHealthToken, type HealthTokenPayload } from "./health-token";
 
 const SECRET = "server-only-secret";
 const USER = "00000000-0000-0000-0000-00000000000a";
 const POT = "20000000-0000-0000-0000-00000000000a";
+const CHECK = "40000000-0000-0000-0000-0000000000c1";
 const P1 = new Uint8Array([0xff, 0xd8, 0xff, 1]);
 const P2 = new Uint8Array([0xff, 0xd8, 0xff, 2]);
 const CLEAN1 = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 1]);
@@ -29,6 +30,7 @@ function judgementFor(resultToken: string): SignedAi {
   return readAiAnswer(SECRET, signAiAnswer(SECRET, { userId: USER, resultToken, kind: "judge", content }), USER, resultToken);
 }
 
+/** newId() gives "id-1" (the clean-up request), then "id-2", "id-3"… (the photo files). */
 function baseDeps() {
   let n = 0;
   return {
@@ -37,10 +39,15 @@ function baseDeps() {
       userId: vi.fn<HealthSaveDeps["photos"]["userId"]>(async () => USER),
       upload: vi.fn<HealthSaveDeps["photos"]["upload"]>(async () => true),
       removeObject: vi.fn<HealthSaveDeps["photos"]["removeObject"]>(async () => true),
+      markDeletion: vi.fn<HealthSaveDeps["photos"]["markDeletion"]>(async () => undefined),
     },
-    health: { save: vi.fn<HealthSaveDeps["health"]["save"]>(async () => "40000000-0000-0000-0000-0000000000c1") },
+    health: {
+      findByDigest: vi.fn<HealthSaveDeps["health"]["findByDigest"]>(async () => null),
+      planCleanup: vi.fn<HealthSaveDeps["health"]["planCleanup"]>(async () => true),
+      save: vi.fn<HealthSaveDeps["health"]["save"]>(async () => ({ checkId: CHECK, potId: POT, created: true })),
+    },
     potExists: vi.fn(async () => true),
-    newId: () => `photo-${++n}`,
+    newId: () => `id-${++n}`,
   };
 }
 
@@ -54,15 +61,17 @@ const save = (
 ) => saveHealthCheck(d, { resultToken: "", photos: [P1], input: INPUT, explanation: null, judgement: null, ...request });
 
 describe("saveHealthCheck (S07-S)", () => {
-  it("stores the signed result, the observation and the signed AI explanation with the photos", async () => {
+  it("records the paths, uploads, and stores the signed result with the signed AI explanation", async () => {
     const d = deps();
     const { token, payload } = signed("ok");
     expect(await save(d, { result: payload, resultToken: token, explanation: explanationFor(token) })).toEqual({
       kind: "saved",
       potId: POT,
-      checkId: "40000000-0000-0000-0000-0000000000c1",
+      checkId: CHECK,
     });
-    expect(d.photos.upload).toHaveBeenCalledWith(`${USER}/photo-1.jpg`, CLEAN1);
+    expect(d.health.planCleanup).toHaveBeenCalledWith("id-1", [`${USER}/id-2.jpg`]);
+    expect(d.health.planCleanup.mock.invocationCallOrder[0]).toBeLessThan(d.photos.upload.mock.invocationCallOrder[0]);
+    expect(d.photos.upload).toHaveBeenCalledWith(`${USER}/id-2.jpg`, CLEAN1);
     expect(d.health.save).toHaveBeenCalledWith(
       POT,
       {
@@ -77,8 +86,10 @@ describe("saveHealthCheck (S07-S)", () => {
         ai_judgement: null,
         ai_model: "model-x",
       },
-      [`${USER}/photo-1.jpg`],
+      [`${USER}/id-2.jpg`],
+      { resultDigest: resultDigest(token), cleanupRequest: "id-1" },
     );
+    expect(d.photos.removeObject).not.toHaveBeenCalled();
   });
 
   it("stores an unclear result with the signed AI photo reading", async () => {
@@ -129,23 +140,64 @@ describe("saveHealthCheck (S07-S)", () => {
     });
   });
 
-  it("removes the files it uploaded when an upload or the database save fails", async () => {
+  it("answers a repeated save of the same result with the saved check, uploading nothing (PR #26 review P2)", async () => {
+    const d = deps();
+    d.health.findByDigest.mockResolvedValueOnce({ checkId: CHECK, potId: POT });
+    const { token, payload } = signed("ok");
+    expect(await save(d, { result: payload, resultToken: token })).toEqual({ kind: "saved", potId: POT, checkId: CHECK });
+    expect(d.health.findByDigest).toHaveBeenCalledWith(resultDigest(token));
+    expect(d.health.planCleanup).not.toHaveBeenCalled();
+    expect(d.photos.upload).not.toHaveBeenCalled();
+    expect(d.health.save).not.toHaveBeenCalled();
+  });
+
+  it("keeps the first of two concurrent saves and removes the second one's files", async () => {
+    const d = deps();
+    d.health.save.mockResolvedValueOnce({ checkId: CHECK, potId: POT, created: false });
+    const { token, payload } = signed("ok");
+    expect(await save(d, { result: payload, resultToken: token })).toEqual({ kind: "saved", potId: POT, checkId: CHECK });
+    expect(d.photos.removeObject).toHaveBeenCalledWith(`${USER}/id-2.jpg`);
+    expect(d.photos.markDeletion).toHaveBeenCalledWith("id-1", `${USER}/id-2.jpg`, { ok: true });
+  });
+
+  it("uploads nothing when the paths cannot be recorded first", async () => {
+    const d = deps();
+    d.health.planCleanup.mockResolvedValueOnce(false);
+    expect(await save(d, { result: signed("ok").payload })).toEqual({ kind: "failed" });
+    expect(d.photos.upload).not.toHaveBeenCalled();
+  });
+
+  it("removes this request's files when an upload or the database save fails, and marks each one", async () => {
     const two = signed("ok", [P1, P2]);
     const failingUpload = deps();
     failingUpload.photos.upload.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     expect(await save(failingUpload, { result: two.payload, photos: [P1, P2] })).toEqual({ kind: "failed" });
-    expect(failingUpload.photos.removeObject).toHaveBeenCalledWith(`${USER}/photo-1.jpg`);
+    expect(failingUpload.photos.removeObject.mock.calls.map((call) => call[0])).toEqual([`${USER}/id-2.jpg`, `${USER}/id-3.jpg`]);
+    expect(failingUpload.photos.markDeletion).toHaveBeenCalledTimes(2);
     expect(failingUpload.health.save).not.toHaveBeenCalled();
 
-    const failingSave = deps({ health: { save: vi.fn<HealthSaveDeps["health"]["save"]>(async () => null) } });
+    const failingSave = deps();
+    failingSave.health.save.mockResolvedValueOnce(null);
     expect(await save(failingSave, { result: two.payload, photos: [P1, P2] })).toEqual({ kind: "failed" });
-    expect(failingSave.photos.removeObject.mock.calls.map((call) => call[0])).toEqual([`${USER}/photo-1.jpg`, `${USER}/photo-2.jpg`]);
+    expect(failingSave.photos.removeObject.mock.calls.map((call) => call[0])).toEqual([`${USER}/id-2.jpg`, `${USER}/id-3.jpg`]);
   });
 
-  it("refuses unreadable photos before uploading anything", async () => {
+  it("keeps a file Storage would not remove on record as failed, for the clean-up job (PR #26 review P2)", async () => {
+    const d = deps();
+    d.health.save.mockResolvedValueOnce(null);
+    d.photos.removeObject.mockResolvedValueOnce(false);
+    expect(await save(d, { result: signed("ok").payload })).toEqual({ kind: "failed" });
+    expect(d.photos.markDeletion).toHaveBeenCalledWith("id-1", `${USER}/id-2.jpg`, {
+      ok: false,
+      error: "unsaved health check photo",
+    });
+  });
+
+  it("refuses unreadable photos before recording or uploading anything", async () => {
     const { payload } = signed("ok");
     const d = deps({ image: fakeImageProcessor({ unreadable: true }) });
     expect((await save(d, { result: payload })).kind).toBe("invalid");
+    expect(d.health.planCleanup).not.toHaveBeenCalled();
     expect(d.photos.upload).not.toHaveBeenCalled();
   });
 });
