@@ -10,6 +10,7 @@ import {
   type SymptomCode,
 } from "@/types/health";
 import { PlantStoreError } from "./plant-repo";
+import { planPendingCleanup } from "./pot-photo-repo";
 import type { SupabaseServerClient } from "./supabase-client";
 
 /**
@@ -150,12 +151,7 @@ export function supabaseHealthStore(client: SupabaseServerClient): HealthStore {
       return row ? { checkId: row.id, potId: row.plant_id } : null;
     },
 
-    async planCleanup(requestId, paths) {
-      const { error } = await client
-        .from("storage_deletions")
-        .insert(paths.map((path) => ({ deletion_request_id: requestId, storage_path: path, status: "pending" })));
-      return !error;
-    },
+    planCleanup: (requestId, paths) => planPendingCleanup(client, requestId, paths),
 
     async save(potId, row, photoPaths, keys) {
       const { data, error } = await client.rpc("save_health_check", {
