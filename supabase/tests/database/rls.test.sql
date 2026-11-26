@@ -115,10 +115,11 @@ select throws_ok(
   'B cannot write a user care value in A''s name'
 );
 
--- B's own photo, used below to check that A cannot link it.
+-- B's own photo, used below to check that A cannot link it. A care-log photo:
+-- health photos always need a pot (20261124100000_health_check_save.sql).
 select lives_ok(
   $$ insert into public.plant_photos (id, storage_path, photo_type)
-     values ('30000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b/b1.jpg', 'health') $$,
+     values ('30000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b/b1.jpg', 'log') $$,
   'B stores an unattached photo in own folder'
 );
 
@@ -306,9 +307,9 @@ select lives_ok(
 );
 
 select lives_ok(
-  $$ insert into public.plant_analyses (id, plant_id, provider, endpoint, analyzed_at)
+  $$ insert into public.plant_analyses (id, plant_id, provider, endpoint, analyzed_at, outcome)
      values ('40000000-0000-0000-0000-00000000000a', '20000000-0000-0000-0000-00000000000a',
-             'plantnet', 'health', now()) $$,
+             'plantnet', 'health', now(), 'unclear') $$,
   'A saves a health check on the first pot'
 );
 
@@ -960,6 +961,147 @@ select throws_ok(
   '42501', null,
   'anon cannot reserve provider calls'
 );
+
+-- ---------------------------------------------------------------------------
+-- Health check save (20261124100000_health_check_save.sql): S07-S
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
+
+select throws_ok(
+  $$ insert into public.plant_photos (storage_path, photo_type)
+     values ('00000000-0000-0000-0000-00000000000a/h-no-pot.jpg', 'health') $$,
+  '23514', null,
+  'a health photo always belongs to a pot'
+);
+
+-- The request records the paths as pending clean-up before uploading (PR #26 review P2).
+insert into public.storage_deletions (deletion_request_id, storage_path, status) values
+  ('60000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a/h1.jpg', 'pending'),
+  ('60000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000000a/h2.jpg', 'pending');
+
+select set_config('test.health_a', (select analysis_id from public.save_health_check(
+  '20000000-0000-0000-0000-00000000000a',
+  '{"outcome": "found", "causes": [{"code": "BOTRCI", "name": "Botrytis cinerea", "score": 0.3}],
+    "symptoms": ["spots"], "noticed": "this_week", "notes": "잎에 회색 가루",
+    "analyzed_at": "2026-11-24T06:00:00Z", "uncertainty": "사진만으로 확정할 수 없음",
+    "ai_explanation": {"causes": [], "checks": ["통풍 확인"], "actions": []}, "ai_judgement": null, "ai_model": "model-x"}'::jsonb,
+  array['00000000-0000-0000-0000-00000000000a/h1.jpg', '00000000-0000-0000-0000-00000000000a/h2.jpg'],
+  'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '60000000-0000-0000-0000-0000000000c1'
+))::text, true);
+
+select is(
+  (select outcome || '|' || noticed || '|' || notes || '|' || ai_model || '|' || result_digest from public.plant_analyses
+    where id = current_setting('test.health_a')::uuid),
+  'found|this_week|잎에 회색 가루|model-x|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  'A saves a found result with the observation, notes, AI model and result digest'
+);
+select ok(
+  (select ai_judgement is null and ai_explanation is not null from public.plant_analyses
+    where id = current_setting('test.health_a')::uuid),
+  'a JSON null AI part is stored as no value'
+);
+select is(
+  (select count(*)::int from public.analysis_photos ap
+     join public.plant_photos p on p.id = ap.photo_id
+    where ap.analysis_id = current_setting('test.health_a')::uuid
+      and p.photo_type = 'health' and p.attached_at is not null and p.plant_id = '20000000-0000-0000-0000-00000000000a'),
+  2, 'both photos are stored as attached health photos of the pot and linked in the same call'
+);
+select is(
+  (select count(*)::int from public.storage_deletions where deletion_request_id = '60000000-0000-0000-0000-0000000000c1'),
+  0, 'the saved photos are no longer pending clean-up (same transaction)'
+);
+
+-- The same result again (retry or double request): the saved check comes back, nothing new.
+select is(
+  (select analysis_id::text || '|' || plant_id::text || '|' || created::text from public.save_health_check(
+     '20000000-0000-0000-0000-00000000000c',
+     '{"outcome": "unclear", "causes": [], "analyzed_at": "2026-11-24T06:00:00Z"}'::jsonb,
+     array['00000000-0000-0000-0000-00000000000a/h1-again.jpg'],
+     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', gen_random_uuid())),
+  current_setting('test.health_a') || '|20000000-0000-0000-0000-00000000000a|false',
+  'saving the same result again returns the first check, on its pot, as not created'
+);
+select is(
+  (select count(*)::int from public.plant_photos where storage_path = '00000000-0000-0000-0000-00000000000a/h1-again.jpg'),
+  0, 'a repeated save adds no photo rows'
+);
+select throws_ok(
+  $$ insert into public.plant_analyses (plant_id, provider, endpoint, analyzed_at, outcome, result_digest)
+     values ('20000000-0000-0000-0000-00000000000a', 'plantnet', 'x', now(), 'unclear', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') $$,
+  '23505', null,
+  'one check per result digest per user, even for concurrent writers'
+);
+select throws_ok(
+  $$ select * from public.save_health_check('20000000-0000-0000-0000-00000000000a',
+       '{"outcome": "unclear", "causes": [], "analyzed_at": "2026-11-24T06:00:00Z"}'::jsonb,
+       array['00000000-0000-0000-0000-00000000000a/h5.jpg'], null, gen_random_uuid()) $$,
+  '22023', null,
+  'a saved health check needs its result digest'
+);
+
+select throws_ok(
+  $$ select * from public.save_health_check('20000000-0000-0000-0000-00000000000a',
+       '{"outcome": "found", "causes": [], "analyzed_at": "2026-11-24T06:00:00Z"}'::jsonb,
+       array['00000000-0000-0000-0000-00000000000a/h3.jpg'], 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', gen_random_uuid()) $$,
+  '23514', null,
+  'a found result needs causes'
+);
+select throws_ok(
+  $$ select * from public.save_health_check('20000000-0000-0000-0000-00000000000a',
+       '{"outcome": "unclear", "causes": [], "analyzed_at": "2026-11-24T06:00:00Z",
+         "ai_judgement": {"signs": ["x"]}}'::jsonb,
+       array['00000000-0000-0000-0000-00000000000a/h4.jpg'], 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', gen_random_uuid()) $$,
+  '23514', null,
+  'AI text is never stored without its model'
+);
+select throws_ok(
+  $$ select * from public.save_health_check('20000000-0000-0000-0000-00000000000a',
+       '{"outcome": "unclear", "causes": [], "analyzed_at": "2026-11-24T06:00:00Z"}'::jsonb,
+       array[]::text[], 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', gen_random_uuid()) $$,
+  '22023', null,
+  'a saved health check needs at least one photo'
+);
+select is(
+  (select count(*)::int from public.plant_photos
+    where storage_path in ('00000000-0000-0000-0000-00000000000a/h3.jpg', '00000000-0000-0000-0000-00000000000a/h4.jpg')),
+  0, 'a refused save leaves no photo rows behind'
+);
+
+-- B cannot save onto A's pot, nor see A's check, nor reuse A's result.
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
+select throws_ok(
+  $$ select * from public.save_health_check('20000000-0000-0000-0000-00000000000a',
+       '{"outcome": "unclear", "causes": [], "analyzed_at": "2026-11-24T06:00:00Z"}'::jsonb,
+       array['00000000-0000-0000-0000-00000000000b/hb.jpg'], 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', gen_random_uuid()) $$,
+  null, null,
+  'B cannot save a health check on A''s pot'
+);
+select is(
+  (select count(*)::int from public.plant_analyses where id = current_setting('test.health_a')::uuid),
+  0, 'B cannot see A''s saved health check'
+);
+select throws_ok(
+  $$ select * from public.save_health_check('20000000-0000-0000-0000-00000000000a',
+       '{"outcome": "unclear", "causes": [], "analyzed_at": "2026-11-24T06:00:00Z"}'::jsonb,
+       array['00000000-0000-0000-0000-00000000000b/hb2.jpg'], 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', gen_random_uuid()) $$,
+  null, null,
+  'A''s result digest never hands A''s check to B'
+);
+
+reset role;
+set local role anon;
+select set_config('request.jwt.claims', '{"role": "anon"}', true);
+select throws_ok(
+  $$ select * from public.save_health_check('20000000-0000-0000-0000-00000000000a', '{}'::jsonb, array['x/y.jpg'], 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', gen_random_uuid()) $$,
+  '42501', null,
+  'anon cannot save health checks'
+);
+reset role;
 
 select * from finish();
 rollback;

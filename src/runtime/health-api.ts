@@ -11,7 +11,7 @@ import { sharpImageProcessor } from "@/service/adapters/image";
 import { plantnetUsage } from "@/service/adapters/plantnet";
 import { plantnetHealth } from "@/service/adapters/plantnet-health";
 import { checkHealth, explainHealth, judgeHealth, readHealthInput } from "@/service/health-check";
-import { readHealthToken, signHealthToken } from "@/service/health-token";
+import { readHealthToken, signAiAnswer, signHealthToken } from "@/service/health-token";
 import { PHOTO_MESSAGES } from "@/service/photo-cleaning";
 import { utcDayStart, usageGate } from "@/service/provider-usage";
 import type { HealthAnswer, JudgeAnswer } from "@/types/health";
@@ -24,7 +24,7 @@ import { IDENTIFY_BODY_MAX, isSameOrigin, readBodyWithin, signedIn } from "./pho
  * a `kind` and no provider detail. Photos are never stored in this step.
  */
 
-const json = (body: unknown, status: number) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
+export const json = (body: unknown, status: number) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
 /** Health explanation step: its own budget, like the care AI step (ADR-0005 D6). */
 const EXPLAIN_BUDGET_MS = 25_000;
@@ -59,7 +59,7 @@ const JUDGE_STATUS: Record<JudgeAnswer["kind"], number> = {
  * signing key from it with a purpose label. Null when Pl@ntNet is not set up,
  * in which case there are no results to sign either.
  */
-function tokenSecret(): string | null {
+export function tokenSecret(): string | null {
   return readProviderConfig().plantnet?.key ?? null;
 }
 
@@ -94,7 +94,7 @@ async function speciesOf(client: SupabaseServerClient, potId: string | null): Pr
   }
 }
 
-async function readForm(request: Request, body: Uint8Array<ArrayBuffer>) {
+export async function readForm(request: Request, body: Uint8Array<ArrayBuffer>) {
   try {
     const form = await new Response(body, {
       headers: { "content-type": request.headers.get("content-type") ?? "" },
@@ -108,9 +108,12 @@ async function readForm(request: Request, body: Uint8Array<ArrayBuffer>) {
       photos,
       fields: { symptoms: form.getAll("symptoms"), noticed: form.get("noticed"), notes: form.get("notes"), potId: form.get("potId") },
       token: form.get("token"),
+      // S07-S only: the signed AI texts to save with the result.
+      explainToken: form.get("explainToken"),
+      judgeToken: form.get("judgeToken"),
     };
   } catch {
-    return { consent: false, photos: [], fields: { symptoms: [], noticed: null, notes: null, potId: null }, token: null };
+    return { consent: false, photos: [], fields: { symptoms: [], noticed: null, notes: null, potId: null }, token: null, explainToken: null, judgeToken: null };
   }
 }
 
@@ -177,7 +180,8 @@ export async function handleHealthExplain(request: Request): Promise<Response> {
   const secret = tokenSecret();
   const result = secret ? readHealthToken(secret, raw?.token, user.userId) : null;
   const input = readHealthInput({ symptoms: raw?.symptoms, noticed: raw?.noticed, notes: null, potId: raw?.potId });
-  if (!result || !input.ok) return json({ kind: "unavailable" }, 400);
+  if (!secret || !result || !input.ok) return json({ kind: "unavailable" }, 400);
+  const resultToken = raw.token as string;
 
   const ai = aiClient(user.client);
   const adapter = ai ? healthAi(ai.provider, ai.options) : null;
@@ -186,6 +190,8 @@ export async function handleHealthExplain(request: Request): Promise<Response> {
     result,
     input: input.input,
     speciesName: await speciesOf(user.client, input.input.potId),
+    sign: (explanation) =>
+      signAiAnswer(secret, { userId: user.userId, resultToken, kind: "explain", content: explanation }),
   });
   return json(answer, 200);
 }
@@ -212,7 +218,12 @@ export async function handleHealthJudge(request: Request): Promise<Response> {
   const secret = tokenSecret();
   const ai = aiClient(user.client);
   const answer = await judgeHealth(
-    { image: sharpImageProcessor, vision: ai ? healthVision(ai.provider, ai.options) : null },
+    {
+      image: sharpImageProcessor,
+      vision: ai ? healthVision(ai.provider, ai.options) : null,
+      sign: (judgement) =>
+        signAiAnswer(secret ?? "", { userId: user.userId, resultToken: String(form.token), kind: "judge", content: judgement }),
+    },
     {
       consent: form.consent,
       photos: form.photos,

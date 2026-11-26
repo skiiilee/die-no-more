@@ -14,6 +14,7 @@ import styles from "@/ui/plants/plants.module.css";
 import { Spinner } from "@/ui/shell/Spinner";
 import { AiJudgePanel, type AiRecipient } from "./AiJudgePanel";
 import { requestExplanation } from "./health-client";
+import { HealthSaveCard, type HealthPot } from "./HealthSaveCard";
 
 const dateFormat = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Seoul" });
 
@@ -34,6 +35,7 @@ export function HealthResult({
   input,
   photos = [],
   aiRecipient = null,
+  pots = [],
   onAgain,
 }: {
   answer: Extract<HealthAnswer, { kind: "ok" | "unclear" }>;
@@ -41,10 +43,14 @@ export function HealthResult({
   /** The photos sent to Pl@ntNet, for asking the AI after '판단 어려움' (ADR-0006 D6). */
   photos?: Blob[];
   aiRecipient?: AiRecipient | null;
+  /** The user's pots for S07-S. */
+  pots?: HealthPot[];
   onAgain: () => void;
 }) {
   const candidates = answer.kind === "ok" ? answer.candidates : [];
   const [explained, setExplained] = useState<ExplainAnswer | "loading" | null>(candidates.length > 0 ? "loading" : null);
+  // The signed AI photo reading, if the user asked for one, saved with the result (S07-S).
+  const [judgeToken, setJudgeToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (candidates.length === 0) return;
@@ -134,7 +140,13 @@ export function HealthResult({
       ) : null}
 
       {judgeOffered && aiRecipient ? (
-        <AiJudgePanel photos={photos} input={input} token={answer.token} recipient={aiRecipient} />
+        <AiJudgePanel
+          photos={photos}
+          input={input}
+          token={answer.token}
+          recipient={aiRecipient}
+          onJudged={setJudgeToken}
+        />
       ) : null}
 
       <div className={styles.card}>
@@ -168,12 +180,25 @@ export function HealthResult({
         ) : null}
       </div>
 
+      {photos.length > 0 ? (
+        <HealthSaveCard
+          pots={pots}
+          input={input}
+          photos={photos}
+          tokens={{
+            result: answer.token,
+            explanation: explained !== "loading" && explained?.kind === "ok" ? explained.token : null,
+            judgement: judgeToken,
+          }}
+          waiting={explained === "loading"}
+        />
+      ) : null}
+
       <div className={styles.actions}>
-        <button type="button" className={styles.primary} onClick={onAgain}>
+        <button type="button" className={styles.secondary} onClick={onAgain}>
           다시 점검
         </button>
       </div>
-      <p className={styles.note}>결과를 화분에 저장하는 기능은 다음 단계에서 연결됩니다.</p>
       {ai || judgeOffered ? (
         <p role="note" aria-label="AI 생성 안내" className={styles.note}>
           ※ AI 생성: &lsquo;AI 참고 설명&rsquo;과 &lsquo;AI의 사진 판단&rsquo;은 AI{aiModel ? `(${aiModel})` : ""}가 쓴 참고

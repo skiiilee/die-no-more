@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { listHealthChecks } from "@/runtime/health-queries";
 import { getPot } from "@/runtime/plant-queries";
 import { getPotCare } from "@/runtime/species-queries";
 import { PlantDetail } from "@/ui/plants/PlantDetail";
@@ -13,6 +14,7 @@ export const maxDuration = 60;
  * S06 내 화분 상세. Someone else's pot is not found (RLS). `photo=failed`
  * comes from S05 when the pot was saved but its photo was not. The species
  * care is not awaited here: the pot shows at once and the care streams in.
+ * `health=saved` comes from S07-S after a health check was saved.
  */
 export default async function Page({
   params,
@@ -21,9 +23,17 @@ export default async function Page({
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [{ id }, { photo }] = await Promise.all([params, searchParams]);
-  const pot = await getPot(id);
+  const [{ id }, { photo, health }] = await Promise.all([params, searchParams]);
+  const [pot, healthChecks] = await Promise.all([getPot(id), listHealthChecks(id)]);
   if (!pot) notFound();
   const care = pot.species ? getPotCare(pot.species.id) : null;
-  return <PlantDetail pot={pot} care={care} photoFailed={photo === "failed"} />;
+  return (
+    <PlantDetail
+      pot={pot}
+      care={care}
+      photoFailed={photo === "failed"}
+      healthChecks={healthChecks}
+      healthSaved={health === "saved"}
+    />
+  );
 }

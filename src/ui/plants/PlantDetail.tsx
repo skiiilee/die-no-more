@@ -11,7 +11,9 @@ import {
   potDisplayName,
   type PotView,
 } from "@/types/plant";
+import type { SavedHealthSummary } from "@/types/health";
 import type { PotCare } from "@/types/species";
+import { HealthHistoryCard } from "@/ui/health/HealthHistoryCard";
 import { Spinner } from "@/ui/shell/Spinner";
 import { PotPhotoPanel } from "./PotPhotoPanel";
 import { SpeciesCareFacts } from "./SpeciesCare";
@@ -66,10 +68,16 @@ export function PlantDetail({
   pot,
   care = null,
   photoFailed = false,
+  healthChecks = [],
+  healthSaved = false,
 }: {
   pot: PotView;
   care?: Promise<PotCare> | null;
   photoFailed?: boolean;
+  /** Newest saved health checks (S07-S). */
+  healthChecks?: SavedHealthSummary[];
+  /** S07-S just saved one. */
+  healthSaved?: boolean;
 }) {
   const recordedOn = dateFormat.format(new Date(pot.initialStateRecordedAt));
   const label = <T extends string>(options: readonly { code: T; label: string }[], code: T) =>
@@ -86,11 +94,6 @@ export function PlantDetail({
         </Link>
       </div>
       {pot.nickname ? <p className={styles.lead}>{plantName(pot)}</p> : null}
-      <div className={styles.actions}>
-        <Link href={`/health?pot=${pot.id}`} className={styles.secondary}>
-          건강 점검
-        </Link>
-      </div>
 
       <div className={styles.columns}>
         <PotPhotoPanel potId={pot.id} name={potDisplayName(pot)} photo={pot.photo} registrationPhotoFailed={photoFailed} />
@@ -125,6 +128,8 @@ export function PlantDetail({
             <dd>{label(LAST_REPOTTED_RANGES, pot.lastRepotted)}</dd>
           </dl>
         </div>
+
+        <HealthHistoryCard potId={pot.id} checks={healthChecks} justSaved={healthSaved} />
 
         <SpeciesCareCard pot={pot} care={care} />
       </div>
