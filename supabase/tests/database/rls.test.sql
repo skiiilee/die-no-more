@@ -115,11 +115,12 @@ select throws_ok(
   'B cannot write a user care value in A''s name'
 );
 
--- B's own photo, used below to check that A cannot link it. A care-log photo:
--- health photos always need a pot (20261124100000_health_check_save.sql).
+-- B's own photo, used below to check that A cannot link it. An identification
+-- photo: pot, health and care-record photos always need a pot
+-- (20261119100000, 20261124100000, 20261126100000).
 select lives_ok(
   $$ insert into public.plant_photos (id, storage_path, photo_type)
-     values ('30000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b/b1.jpg', 'log') $$,
+     values ('30000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-00000000000b/b1.jpg', 'identification') $$,
   'B stores an unattached photo in own folder'
 );
 
@@ -1101,6 +1102,141 @@ select throws_ok(
   '42501', null,
   'anon cannot save health checks'
 );
+-- ---------------------------------------------------------------------------
+-- Care record save (20261126100000_care_record_save.sql): S08
+-- ---------------------------------------------------------------------------
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000a", "role": "authenticated"}', true);
+
+select throws_ok(
+  $$ insert into public.plant_photos (storage_path, photo_type)
+     values ('00000000-0000-0000-0000-00000000000a/c-no-pot.jpg', 'log') $$,
+  '23514', null,
+  'a care record photo always belongs to a pot'
+);
+
+insert into public.storage_deletions (deletion_request_id, storage_path, status) values
+  ('60000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-00000000000a/c1.jpg', 'pending');
+
+select set_config('test.care_a', (select record_id from public.save_care_record(
+  '20000000-0000-0000-0000-00000000000a',
+  '{"recorded_at": "2026-11-26T05:30:00Z", "notes": "베란다",
+    "actions": [{"type": "water", "amount_ml": 300, "notes": null}, {"type": "prune", "amount_ml": null, "notes": "아래 잎"}],
+    "observation": {"soil_state": "dry", "notes": "새 잎"}}'::jsonb,
+  array['00000000-0000-0000-0000-00000000000a/c1.jpg'],
+  'care-key-1', '60000000-0000-0000-0000-0000000000d1'
+))::text, true);
+
+select ok(
+  (select notes = '베란다' and recorded_at = '2026-11-26T05:30:00Z'::timestamptz
+     from public.care_records where id = current_setting('test.care_a')::uuid),
+  'A saves a record with its time and common memo'
+);
+select is(
+  (select string_agg(care_type || ':' || coalesce(amount::text, '-') || ':' || coalesce(unit, '-') || ':' || coalesce(notes, '-'), ',' order by care_type)
+     from public.care_logs where record_id = current_setting('test.care_a')::uuid),
+  'prune:-:-:아래 잎,water:300:ml:-',
+  'one log per ticked activity, the amount in ml for watering only'
+);
+select is(
+  (select soil_state || '|' || notes from public.plant_observations where record_id = current_setting('test.care_a')::uuid),
+  'dry|새 잎',
+  'the soil state and observation text are one observation'
+);
+select is(
+  (select count(*)::int from public.care_record_photos l join public.plant_photos p on p.id = l.photo_id
+    where l.record_id = current_setting('test.care_a')::uuid and p.photo_type = 'log' and p.attached_at is not null),
+  1, 'the photo is stored as an attached log photo and linked in the same call'
+);
+select is(
+  (select count(*)::int from public.storage_deletions where deletion_request_id = '60000000-0000-0000-0000-0000000000d1'),
+  0, 'the saved photo is no longer pending clean-up'
+);
+
+-- The same form again (double submit, retry): the first record comes back, nothing new.
+select is(
+  (select record_id::text || '|' || created::text from public.save_care_record(
+     '20000000-0000-0000-0000-00000000000a',
+     '{"recorded_at": "2026-11-26T05:30:00Z", "actions": [{"type": "fertilize"}]}'::jsonb,
+     null, 'care-key-1', null)),
+  current_setting('test.care_a') || '|false',
+  'saving the same form again returns the first record as not created'
+);
+select is(
+  (select count(*)::int from public.care_records where idempotency_key = 'care-key-1'), 1,
+  'a repeated save adds no record'
+);
+
+-- A soil check alone is an observation, never a watering log.
+select set_config('test.care_soil', (select record_id from public.save_care_record(
+  '20000000-0000-0000-0000-00000000000a',
+  '{"recorded_at": "2026-11-26T06:00:00Z", "actions": [], "observation": {"soil_state": "moist", "notes": null}}'::jsonb,
+  null, 'care-key-2', null
+))::text, true);
+select is(
+  (select count(*)::int from public.care_logs where record_id = current_setting('test.care_soil')::uuid), 0,
+  'a soil check writes no care log'
+);
+
+select throws_ok(
+  $$ select * from public.save_care_record('20000000-0000-0000-0000-00000000000a',
+       '{"recorded_at": "2026-11-26T06:00:00Z", "actions": [], "observation": null, "notes": "  "}'::jsonb,
+       null, 'care-key-3', null) $$,
+  '22023', null,
+  'an empty record is not saved'
+);
+select throws_ok(
+  $$ select * from public.save_care_record('20000000-0000-0000-0000-00000000000a',
+       '{"recorded_at": "2026-11-26T06:00:00Z", "actions": [{"type": "water"}, {"type": "water"}]}'::jsonb,
+       null, 'care-key-4', null) $$,
+  '23505', null,
+  'one record writes at most one log per activity'
+);
+select is(
+  (select count(*)::int from public.care_records where idempotency_key = 'care-key-4'), 0,
+  'a refused save leaves no record behind'
+);
+select throws_ok(
+  $$ select * from public.save_care_record('20000000-0000-0000-0000-00000000000a',
+       '{"recorded_at": "2026-11-26T06:00:00Z", "actions": [{"type": "water"}]}'::jsonb,
+       null, null, null) $$,
+  '22023', null,
+  'a record needs its form key'
+);
+
+-- B cannot save onto A's pot, see A's record, or reuse A's form key.
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub": "00000000-0000-0000-0000-00000000000b", "role": "authenticated"}', true);
+select throws_ok(
+  $$ select * from public.save_care_record('20000000-0000-0000-0000-00000000000a',
+       '{"recorded_at": "2026-11-26T06:00:00Z", "actions": [{"type": "water"}]}'::jsonb,
+       null, 'care-key-b', null) $$,
+  null, null,
+  'B cannot save a care record on A''s pot'
+);
+select is(
+  (select count(*)::int from public.care_records where id = current_setting('test.care_a')::uuid), 0,
+  'B cannot see A''s care record'
+);
+select throws_ok(
+  $$ select * from public.save_care_record('20000000-0000-0000-0000-00000000000a',
+       '{"recorded_at": "2026-11-26T06:00:00Z", "actions": [{"type": "water"}]}'::jsonb,
+       null, 'care-key-1', null) $$,
+  null, null,
+  'A''s form key never hands A''s record to B'
+);
+
+reset role;
+set local role anon;
+select set_config('request.jwt.claims', '{"role": "anon"}', true);
+select throws_ok(
+  $$ select * from public.save_care_record('20000000-0000-0000-0000-00000000000a', '{}'::jsonb, null, 'k', null) $$,
+  '42501', null,
+  'anon cannot save care records'
+);
+
 reset role;
 
 select * from finish();

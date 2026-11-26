@@ -11,8 +11,10 @@ import {
   potDisplayName,
   type PotView,
 } from "@/types/plant";
+import type { CareRecordSummary } from "@/types/care";
 import type { SavedHealthSummary } from "@/types/health";
 import type { PotCare } from "@/types/species";
+import { CareHistoryCard } from "@/ui/care/CareHistoryCard";
 import { HealthHistoryCard } from "@/ui/health/HealthHistoryCard";
 import { Spinner } from "@/ui/shell/Spinner";
 import { PotPhotoPanel } from "./PotPhotoPanel";
@@ -60,8 +62,9 @@ function SpeciesCareCard({ pot, care }: { pot: PotView; care: Promise<PotCare> |
 
 /**
  * S06 내 화분 상세 (wireframe pages 19–20): the pot's own info, its photo,
- * and the species care (F10). Records (S08/S10), health check (S07) and
- * direct care entry (S13) are added by the PRs that build those screens.
+ * the newest care records (S08) and health checks (S07-S), and the species
+ * care (F10). The full history (S10) and direct care entry (S13) are added by
+ * the PRs that build those screens.
  * `care` streams in after the pot is shown; null when the pot has no species.
  */
 export function PlantDetail({
@@ -70,6 +73,8 @@ export function PlantDetail({
   photoFailed = false,
   healthChecks = [],
   healthSaved = false,
+  careRecords = [],
+  careSaved = false,
 }: {
   pot: PotView;
   care?: Promise<PotCare> | null;
@@ -78,6 +83,10 @@ export function PlantDetail({
   healthChecks?: SavedHealthSummary[];
   /** S07-S just saved one. */
   healthSaved?: boolean;
+  /** Newest S08 records. */
+  careRecords?: CareRecordSummary[];
+  /** S08 just saved one. */
+  careSaved?: boolean;
 }) {
   const recordedOn = dateFormat.format(new Date(pot.initialStateRecordedAt));
   const label = <T extends string>(options: readonly { code: T; label: string }[], code: T) =>
@@ -128,6 +137,8 @@ export function PlantDetail({
             <dd>{label(LAST_REPOTTED_RANGES, pot.lastRepotted)}</dd>
           </dl>
         </div>
+
+        <CareHistoryCard potId={pot.id} records={careRecords} justSaved={careSaved} />
 
         <HealthHistoryCard potId={pot.id} checks={healthChecks} justSaved={healthSaved} />
 

@@ -4,6 +4,7 @@ import type { HealthInput, SaveAnswer } from "@/types/health";
 import type { ImageProcessor } from "./adapters/image";
 import { resultDigest, samePhotos, type AiAnswerPayload, type HealthTokenPayload } from "./health-token";
 import { cleanPhotos } from "./photo-cleaning";
+import { uploadTracked } from "./tracked-upload";
 
 /**
  * S07-S 이 화분에 결과 저장 (ADR-0003 D6, ADR-0006 D5, owner decision
@@ -82,29 +83,15 @@ export async function saveHealthCheck(
   const cleaned = await cleanPhotos(deps.image, request.photos);
   if (!cleaned.ok) return { kind: "invalid", message: cleaned.message };
 
-  // Record the paths before anything is uploaded, so no file is ever untracked.
-  const cleanupRequest = deps.newId();
-  const paths = cleaned.photos.map(() => `${userId}/${deps.newId()}.jpg`);
-  if (!(await deps.health.planCleanup(cleanupRequest, paths).catch(() => false))) return { kind: "failed" };
-
-  /** Removes this request's files; a removal Storage refused stays on record as failed. */
-  const cleanUp = () =>
-    Promise.all(
-      paths.map(async (path) => {
-        const removed = await deps.photos.removeObject(path).catch(() => false);
-        await deps.photos
-          .markDeletion(cleanupRequest, path, removed ? { ok: true } : { ok: false, error: "unsaved health check photo" })
-          .catch(() => undefined);
-      }),
-    );
-
-  for (const [index, photo] of cleaned.photos.entries()) {
-    const ok = await deps.photos.upload(paths[index], photo).catch(() => false);
-    if (!ok) {
-      await cleanUp();
-      return { kind: "failed" };
-    }
-  }
+  // Paths recorded as pending clean-up before the upload; removed again if the save does not happen.
+  const upload = await uploadTracked(
+    { photos: deps.photos, planCleanup: deps.health.planCleanup, newId: deps.newId },
+    userId,
+    cleaned.photos,
+    "unsaved health check photo",
+  );
+  if (!upload) return { kind: "failed" };
+  const { paths, cleanupRequest, cleanUp } = upload;
 
   const aiModel = explanation?.m ?? judgement?.m ?? null;
   const saved = await deps.health

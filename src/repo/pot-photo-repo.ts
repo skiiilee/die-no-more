@@ -39,6 +39,19 @@ export type PotPhotoStore = {
 
 type PhotoRow = { id: string; plant_id: string; storage_path: string; created_at: string };
 
+/**
+ * Records paths about to be uploaded as 'pending' clean-up under `requestId`
+ * (PR #26 review P2), so no uploaded file is ever untracked. The save that
+ * uses the files deletes these rows in its transaction. False when the rows
+ * could not be written.
+ */
+export async function planPendingCleanup(client: SupabaseServerClient, requestId: string, paths: string[]): Promise<boolean> {
+  const { error } = await client
+    .from("storage_deletions")
+    .insert(paths.map((path) => ({ deletion_request_id: requestId, storage_path: path, status: "pending" })));
+  return !error;
+}
+
 export function supabasePotPhotoStore(client: SupabaseServerClient): PotPhotoStore {
   const bucket = () => client.storage.from(POT_PHOTO_BUCKET);
   return {
